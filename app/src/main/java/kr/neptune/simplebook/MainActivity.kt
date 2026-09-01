@@ -12,6 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -107,9 +109,11 @@ class MainActivity : ComponentActivity() {
 
                 // 읽는 동안에는 상태바/내비바를 걷어낸다. 만화는 화면을 다 쓰는 편이 낫다
                 val view = LocalView.current
-                LaunchedEffect(reading, immersive) {
+                // 정보 줄은 상태바가 있던 자리에 놓인다. 둘 다 켜면 겹치므로 이때는 늘 숨긴다
+                val readerInfo by vm.prefs.readerInfo.collectAsStateWithLifecycle()
+                LaunchedEffect(reading, immersive, readerInfo) {
                     val controller = WindowInsetsControllerCompat(window, view)
-                    if (reading != null && immersive) {
+                    if (reading != null && (immersive || readerInfo)) {
                         controller.systemBarsBehavior =
                             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                         controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -120,6 +124,7 @@ class MainActivity : ComponentActivity() {
 
                 // 카메라 구멍을 피할 때는 그 자리를 검게 두고 앱을 그만큼 내린다
                 val avoidCutout by vm.prefs.avoidCutout.collectAsStateWithLifecycle()
+                val cutoutExtra by vm.prefs.cutoutExtra.collectAsStateWithLifecycle()
 
                 Box(
                     Modifier
@@ -132,7 +137,15 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.background,
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(if (avoidCutout) Modifier.displayCutoutPadding() else Modifier),
+                            .then(
+                                if (avoidCutout) {
+                                    Modifier
+                                        .displayCutoutPadding()
+                                        .padding(top = cutoutExtra.dp)
+                                } else {
+                                    Modifier
+                                }
+                            ),
                     ) {
                         val book = reading
                         when {

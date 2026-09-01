@@ -332,7 +332,7 @@ fun ReaderScreen(
             }
         }
 
-        if (readerInfo && !chromeVisible && !settingsVisible) {
+        if (readerInfo && !chromeVisible) {
             ReaderStatusOverlay(
                 title = item.title,
                 page = pageNumber.intValue,
@@ -1404,6 +1404,7 @@ private fun ReaderSettings(
     val avoidCutout by prefs.avoidCutout.collectAsStateWithLifecycle()
     val readerInfo by prefs.readerInfo.collectAsStateWithLifecycle()
     val readerInfoOffset by prefs.readerInfoOffset.collectAsStateWithLifecycle()
+    val cutoutExtra by prefs.cutoutExtra.collectAsStateWithLifecycle()
     val systemBrightness by prefs.systemBrightness.collectAsStateWithLifecycle()
     val brightness by prefs.brightness.collectAsStateWithLifecycle()
 
@@ -1465,16 +1466,20 @@ private fun ReaderSettings(
                     prefs.setAutoTurn(it)
                 }
                 if (autoTurn) {
-                    Text(
-                        "${autoTurnSeconds.toInt()}초에 한 번",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Slider(
-                        value = autoTurnSeconds,
-                        onValueChange = { prefs.setAutoTurnSeconds(it) },
-                        valueRange = 2f..60f,
-                        steps = 57,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "넘기는 간격",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        NumberStepper(
+                            value = autoTurnSeconds.toInt(),
+                            range = 2..600,
+                            onChange = { prefs.setAutoTurnSeconds(it.toFloat()) },
+                            suffix = "초",
+                            label = "몇 초에 한 번",
+                        )
+                    }
                 }
 
                 PanelDivider()
@@ -1621,28 +1626,56 @@ private fun ReaderSettings(
                 }
 
                 Spacer(Modifier.height(4.dp))
-                PanelToggle("상단바 숨기기", null, immersive) { prefs.setImmersive(it) }
+                PanelToggle(
+                    "상단바 숨기기",
+                    if (readerInfo) "정보 줄이 그 자리를 쓰므로 켜 둡니다" else null,
+                    immersive || readerInfo,
+                    enabled = !readerInfo,
+                ) { prefs.setImmersive(it) }
+
                 PanelToggle(
                     "카메라 구멍 피하기",
                     "구멍만큼 화면을 내리고 그 자리는 검게 둡니다",
                     avoidCutout,
                 ) { prefs.setAvoidCutout(it) }
+                if (avoidCutout) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("더 내리기", style = MaterialTheme.typography.bodyMedium)
+                            PanelHint("자동으로 잡힌 여백에 이만큼 더합니다")
+                        }
+                        NumberStepper(
+                            value = cutoutExtra.toInt(),
+                            range = 0..96,
+                            onChange = { prefs.setCutoutExtra(it.toFloat()) },
+                            step = 2,
+                            suffix = "dp",
+                            label = "더 내릴 만큼 (dp)",
+                        )
+                    }
+                }
+
                 PanelToggle(
                     "정보 줄 보기",
-                    "시계 · 배터리 · 책 이름 · 쪽수",
+                    "시계 · 배터리 · 책 이름 · 쪽수를 상단바 자리에",
                     readerInfo,
                 ) { prefs.setReaderInfo(it) }
                 if (readerInfo) {
-                    Text(
-                        "정보 줄 위치  +${readerInfoOffset.toInt()}dp",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Slider(
-                        value = readerInfoOffset,
-                        onValueChange = { prefs.setReaderInfoOffset(it) },
-                        valueRange = 0f..64f,
-                        steps = 31,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "정보 줄 위치",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        NumberStepper(
+                            value = readerInfoOffset.toInt(),
+                            range = 0..96,
+                            onChange = { prefs.setReaderInfoOffset(it.toFloat()) },
+                            step = 2,
+                            suffix = "dp",
+                            label = "정보 줄 위치 (dp)",
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -1704,6 +1737,7 @@ private fun PanelToggle(
     title: String,
     subtitle: String?,
     checked: Boolean,
+    enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1711,7 +1745,7 @@ private fun PanelToggle(
             Text(title, style = MaterialTheme.typography.bodyMedium)
             if (subtitle != null) PanelHint(subtitle)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 

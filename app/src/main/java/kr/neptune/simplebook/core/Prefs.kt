@@ -166,6 +166,19 @@ class Prefs(context: Context) {
 
     fun setAvoidCutout(v: Boolean) = put("avoid_cutout", v, _avoidCutout)
 
+    /**
+     * 자동으로 잡힌 여백에 더해 얼마나 더 내릴지 (dp).
+     * 기기에 따라 가로에서는 구멍 여백이 0 으로 보고되기도 해서 손으로 맞출 길을 둔다.
+     */
+    private val _cutoutExtra = MutableStateFlow(sp.getFloat("cutout_extra", 0f))
+    val cutoutExtra: StateFlow<Float> = _cutoutExtra.asStateFlow()
+
+    fun setCutoutExtra(v: Float) {
+        val clamped = v.coerceIn(0f, 96f)
+        sp.edit().putFloat("cutout_extra", clamped).apply()
+        _cutoutExtra.value = clamped
+    }
+
     private val _orientation = MutableStateFlow(enum("orientation", OrientationMode.AUTO))
     val orientation: StateFlow<OrientationMode> = _orientation.asStateFlow()
 

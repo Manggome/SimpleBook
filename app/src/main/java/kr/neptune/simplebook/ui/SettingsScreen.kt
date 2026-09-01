@@ -44,8 +44,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.R
@@ -105,6 +110,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val orientation by prefs.orientation.collectAsStateWithLifecycle()
     val immersive by prefs.immersive.collectAsStateWithLifecycle()
     val avoidCutout by prefs.avoidCutout.collectAsStateWithLifecycle()
+    val cutoutExtra by prefs.cutoutExtra.collectAsStateWithLifecycle()
     val readerInfo by prefs.readerInfo.collectAsStateWithLifecycle()
     val readerInfoOffset by prefs.readerInfoOffset.collectAsStateWithLifecycle()
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle()
@@ -119,6 +125,20 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
         runCatching {
             context.resources.openRawResource(R.raw.changelog).bufferedReader().use { it.readText() }
         }.getOrDefault("패치노트를 읽지 못했습니다")
+    }
+
+    // 가로에서 구멍 여백이 0 으로 오는 기기가 있어, 실제로 잡힌 값을 보여 준다
+    val view = LocalView.current
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val cutoutReading = remember(configuration, view) {
+        val insets = ViewCompat.getRootWindowInsets(view)
+            ?.getInsets(WindowInsetsCompat.Type.displayCutout())
+        if (insets == null) "감지하지 못했습니다"
+        else with(density) {
+            "위 ${insets.top.toDp().value.toInt()} · 아래 ${insets.bottom.toDp().value.toInt()} · " +
+                "왼 ${insets.left.toDp().value.toInt()} · 오 ${insets.right.toDp().value.toInt()} dp"
+        }
     }
 
     val fontPicker = rememberLauncherForActivityResult(
@@ -242,16 +262,20 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 autoTurn,
             ) { prefs.setAutoTurn(it) }
             if (autoTurn) {
-                Text(
-                    "${autoTurnSeconds.toInt()}초에 한 번",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = autoTurnSeconds,
-                    onValueChange = { prefs.setAutoTurnSeconds(it) },
-                    valueRange = 2f..60f,
-                    steps = 57,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "넘기는 간격",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    NumberStepper(
+                        value = autoTurnSeconds.toInt(),
+                        range = 2..600,
+                        onChange = { prefs.setAutoTurnSeconds(it.toFloat()) },
+                        suffix = "초",
+                        label = "몇 초에 한 번",
+                    )
+                }
             }
 
             Gap()
@@ -367,29 +391,57 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             Caption("자동은 폰의 회전 잠금 설정을 그대로 따릅니다.")
 
             Spacer(Modifier.height(8.dp))
-            ToggleRow("읽을 때 상단바 숨기기", null, immersive) { prefs.setImmersive(it) }
+            ToggleRow(
+                "읽을 때 상단바 숨기기",
+                if (readerInfo) "정보 줄이 상단바 자리를 쓰므로 켠 채로 둡니다" else null,
+                immersive || readerInfo,
+                enabled = !readerInfo,
+            ) { prefs.setImmersive(it) }
+
             ToggleRow(
                 "카메라 구멍 피하기",
                 "구멍이 파고든 만큼 화면을 내리고 그 자리는 검게 둡니다",
                 avoidCutout,
             ) { prefs.setAvoidCutout(it) }
+            if (avoidCutout) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("더 내리기", style = MaterialTheme.typography.bodyMedium)
+                        Caption("자동으로 잡힌 여백에 이만큼 더합니다")
+                    }
+                    NumberStepper(
+                        value = cutoutExtra.toInt(),
+                        range = 0..96,
+                        onChange = { prefs.setCutoutExtra(it.toFloat()) },
+                        step = 2,
+                        suffix = "dp",
+                        label = "더 내릴 만큼 (dp)",
+                    )
+                }
+                Caption("지금 기기가 알려 준 구멍 여백 — $cutoutReading")
+            }
+
             ToggleRow(
                 "읽을 때 정보 줄 보기",
-                "시계 · 배터리 % · 책 이름 · 현재 쪽/전체 쪽을 화면 위에 얇게 띄웁니다",
+                "시계 · 배터리 % · 책 이름 · 현재 쪽/전체 쪽을 상단바 자리에 띄웁니다",
                 readerInfo,
             ) { prefs.setReaderInfo(it) }
             if (readerInfo) {
-                Text(
-                    "정보 줄 위치  +${readerInfoOffset.toInt()}dp",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = readerInfoOffset,
-                    onValueChange = { prefs.setReaderInfoOffset(it) },
-                    valueRange = 0f..64f,
-                    steps = 31,
-                )
-                Caption("기본은 안전 영역 바로 아래입니다. 더 내리고 싶으면 값을 올리세요.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "정보 줄 위치",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    NumberStepper(
+                        value = readerInfoOffset.toInt(),
+                        range = 0..96,
+                        onChange = { prefs.setReaderInfoOffset(it.toFloat()) },
+                        step = 2,
+                        suffix = "dp",
+                        label = "정보 줄 위치 (dp)",
+                    )
+                }
             }
             ToggleRow("읽는 동안 화면 켜두기", null, keepScreenOn) { prefs.setKeepScreenOn(it) }
             ToggleRow(
@@ -527,6 +579,7 @@ private fun ToggleRow(
     title: String,
     subtitle: String?,
     checked: Boolean,
+    enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
     Row(
@@ -537,6 +590,6 @@ private fun ToggleRow(
             Text(title, style = MaterialTheme.typography.bodyMedium)
             if (subtitle != null) Caption(subtitle)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
