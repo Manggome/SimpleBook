@@ -248,6 +248,11 @@ fun ReaderScreen(
         }
     }
 
+    val onMenu = { chromeVisible = !chromeVisible }
+    // 소설은 종이색을 고를 수 있다. 만화는 어느 테마에서든 검은 바탕이 낫다.
+    val paper = if (reader.isText) Color(textBackground.paper) else ReaderBackground
+    val ink = if (reader.isText) Color(textBackground.ink) else PageText
+
     // 정보 줄은 카메라 구멍 여백 바깥에 놓여야 해서 액티비티가 그린다. 값만 올려 준다
     LaunchedEffect(item.id, pageNumber.intValue, totalPages, chromeVisible, paper) {
         vm.publishReaderStatus(
@@ -257,10 +262,6 @@ fun ReaderScreen(
     }
     DisposableEffect(Unit) { onDispose { vm.publishReaderStatus(null) } }
 
-    val onMenu = { chromeVisible = !chromeVisible }
-    // 소설은 종이색을 고를 수 있다. 만화는 어느 테마에서든 검은 바탕이 낫다.
-    val paper = if (reader.isText) Color(textBackground.paper) else ReaderBackground
-    val ink = if (reader.isText) Color(textBackground.ink) else PageText
 
     // 뒤로가기는 열려 있는 것부터 하나씩 닫는다. 바로 책장으로 튕기면 답답하다
     BackHandler(
