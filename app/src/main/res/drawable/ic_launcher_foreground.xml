@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 펼친 책 모양. 어댑티브 아이콘 규격(108dp 뷰포트, 가운데 66dp 안전영역)에 맞춰 그렸다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFF6EAD8"
+        android:pathData="M53,42 C47,36.5 38,34 29,34 L29,71 C38,71 47,73.5 53,79 Z" />
+    <path
+        android:fillColor="#FFE4D2B8"
+        android:pathData="M55,42 C61,36.5 70,34 79,34 L79,71 C70,71 61,73.5 55,79 Z" />
+    <path
+        android:fillColor="#FFB07B4A"
+        android:pathData="M52.2,41 L55.8,41 L55.8,79.5 L52.2,79.5 Z" />
+</vector>

@@ -1,0 +1,103 @@
+package kr.neptune.simplebook.core
+
+import android.content.Context
+import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * 앱 전역 설정. SharedPreferences 에 저장하고 Compose 가 구독할 수 있게 StateFlow 로 내보낸다.
+ */
+class Prefs(context: Context) {
+
+    private val sp: SharedPreferences =
+        context.applicationContext.getSharedPreferences("simplebook", Context.MODE_PRIVATE)
+
+    // ---------------------------------------------------------------- 책장
+
+    private val _viewMode = MutableStateFlow(enum("view_mode", ViewMode.GRID))
+    val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
+
+    private val _sortMode = MutableStateFlow(enum("sort_mode", SortMode.RECENT))
+    val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
+
+    fun setViewMode(v: ViewMode) = put("view_mode", v, _viewMode)
+    fun setSortMode(v: SortMode) = put("sort_mode", v, _sortMode)
+
+    // ---------------------------------------------------------------- 보기
+
+    private val _direction = MutableStateFlow(enum("direction", ReadDirection.RTL))
+    val direction: StateFlow<ReadDirection> = _direction.asStateFlow()
+
+    private val _spread = MutableStateFlow(enum("spread", SpreadMode.AUTO))
+    val spread: StateFlow<SpreadMode> = _spread.asStateFlow()
+
+    /**
+     * 자동 판정 기준. 화면 가로÷세로가 이 값 이상이면 2쪽을 편다.
+     * 1.0 이면 "가로가 세로보다 길면 2쪽" — 폴드를 펴고 가로로 들었을 때가 여기 해당한다.
+     */
+    private val _spreadThreshold = MutableStateFlow(sp.getFloat("spread_threshold", 1.0f))
+    val spreadThreshold: StateFlow<Float> = _spreadThreshold.asStateFlow()
+
+    /** 2쪽 보기에서 표지(1쪽)는 혼자 두기. 종이책 펼침면과 짝을 맞추기 위함 */
+    private val _coverAlone = MutableStateFlow(sp.getBoolean("cover_alone", true))
+    val coverAlone: StateFlow<Boolean> = _coverAlone.asStateFlow()
+
+    /** 화면 좌우를 탭해서 넘기기 */
+    private val _tapToTurn = MutableStateFlow(sp.getBoolean("tap_to_turn", true))
+    val tapToTurn: StateFlow<Boolean> = _tapToTurn.asStateFlow()
+
+    /** 읽는 동안 화면 켜두기 */
+    private val _keepScreenOn = MutableStateFlow(sp.getBoolean("keep_screen_on", true))
+    val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
+
+    /** 읽을 때 상태바/내비바 숨기기 */
+    private val _immersive = MutableStateFlow(sp.getBoolean("immersive", true))
+    val immersive: StateFlow<Boolean> = _immersive.asStateFlow()
+
+    fun setDirection(v: ReadDirection) = put("direction", v, _direction)
+    fun setSpread(v: SpreadMode) = put("spread", v, _spread)
+    fun setSpreadThreshold(v: Float) {
+        sp.edit().putFloat("spread_threshold", v).apply()
+        _spreadThreshold.value = v
+    }
+    fun setCoverAlone(v: Boolean) = put("cover_alone", v, _coverAlone)
+    fun setTapToTurn(v: Boolean) = put("tap_to_turn", v, _tapToTurn)
+    fun setKeepScreenOn(v: Boolean) = put("keep_screen_on", v, _keepScreenOn)
+    fun setImmersive(v: Boolean) = put("immersive", v, _immersive)
+
+    /** TXT 본문 글자 크기 (sp) */
+    private val _textSize = MutableStateFlow(sp.getFloat("text_size", 18f))
+    val textSize: StateFlow<Float> = _textSize.asStateFlow()
+
+    fun setTextSize(v: Float) {
+        val clamped = v.coerceIn(12f, 34f)
+        sp.edit().putFloat("text_size", clamped).apply()
+        _textSize.value = clamped
+    }
+
+    // ---------------------------------------------------------------- 업데이트
+
+    private val _autoUpdate = MutableStateFlow(sp.getBoolean("auto_update", true))
+    val autoUpdate: StateFlow<Boolean> = _autoUpdate.asStateFlow()
+
+    fun setAutoUpdate(v: Boolean) = put("auto_update", v, _autoUpdate)
+
+    // ---------------------------------------------------------------- 내부
+
+    private inline fun <reified T : Enum<T>> enum(key: String, fallback: T): T {
+        val raw = sp.getString(key, null) ?: return fallback
+        return runCatching { enumValueOf<T>(raw) }.getOrDefault(fallback)
+    }
+
+    private fun <T : Enum<T>> put(key: String, v: T, flow: MutableStateFlow<T>) {
+        sp.edit().putString(key, v.name).apply()
+        flow.value = v
+    }
+
+    private fun put(key: String, v: Boolean, flow: MutableStateFlow<Boolean>) {
+        sp.edit().putBoolean(key, v).apply()
+        flow.value = v
+    }
+}
