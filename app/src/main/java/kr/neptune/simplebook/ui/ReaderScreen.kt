@@ -576,6 +576,31 @@ private fun SpreadPager(
 /** 넘어가는 중인 두 장 */
 private data class Flip(val top: Int, val under: Int, val forward: Boolean)
 
+/** 두 손가락으로 키우고 줄인다. 확대 중에만 한 손가락 이동을 가져간다 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ZoomBox(
+    modifier: Modifier = Modifier,
+    content: @Composable (Modifier) -> Unit,
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val transform = rememberTransformableState { zoomChange, panChange, _ ->
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
+        offset = if (scale > 1f) offset + panChange else Offset.Zero
+    }
+    Box(modifier.transformable(state = transform, canPan = { scale > 1f })) {
+        content(
+            Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            }
+        )
+    }
+}
+
 @Composable
 private fun Spread(
     group: IntArray,
