@@ -35,16 +35,23 @@ class Prefs(context: Context) {
 
     /**
      * 자동 판정 기준. 화면 가로÷세로가 이 값 이상이면 2쪽을 편다.
-     * 1.0 이면 "가로가 세로보다 길면 2쪽" — 폴드를 펴고 가로로 들었을 때가 여기 해당한다.
+     *
+     * 기본값 0.85 는 폴드를 펴면 세로로 들든 가로로 들든 2쪽이 되는 지점이다
+     * (펴고 세로 ~0.86, 펴고 가로 ~1.16). 1.0 으로 올리면 펴고 가로일 때만 2쪽이 된다.
      */
-    private val _spreadThreshold = MutableStateFlow(sp.getFloat("spread_threshold", 1.0f))
+    private val _spreadThreshold = MutableStateFlow(sp.getFloat("spread_threshold", 0.85f))
     val spreadThreshold: StateFlow<Float> = _spreadThreshold.asStateFlow()
 
     /** 2쪽 보기에서 표지(1쪽)는 혼자 두기. 종이책 펼침면과 짝을 맞추기 위함 */
     private val _coverAlone = MutableStateFlow(sp.getBoolean("cover_alone", true))
     val coverAlone: StateFlow<Boolean> = _coverAlone.asStateFlow()
 
-    /** 화면 좌우를 탭해서 넘기기 */
+    private val _pageEffect = MutableStateFlow(enum("page_effect", PageEffect.SLIDE))
+    val pageEffect: StateFlow<PageEffect> = _pageEffect.asStateFlow()
+
+    fun setPageEffect(v: PageEffect) = put("page_effect", v, _pageEffect)
+
+    /** 화면 좌우 25% 를 탭해서 넘기기. 가운데 50% 는 메뉴 */
     private val _tapToTurn = MutableStateFlow(sp.getBoolean("tap_to_turn", true))
     val tapToTurn: StateFlow<Boolean> = _tapToTurn.asStateFlow()
 
@@ -66,6 +73,26 @@ class Prefs(context: Context) {
     fun setTapToTurn(v: Boolean) = put("tap_to_turn", v, _tapToTurn)
     fun setKeepScreenOn(v: Boolean) = put("keep_screen_on", v, _keepScreenOn)
     fun setImmersive(v: Boolean) = put("immersive", v, _immersive)
+
+    // ---------------------------------------------------------------- 화면
+
+    private val _orientation = MutableStateFlow(enum("orientation", OrientationMode.AUTO))
+    val orientation: StateFlow<OrientationMode> = _orientation.asStateFlow()
+
+    /** 끄면 아래 [brightness] 값으로 앱 화면 밝기를 직접 잡는다 */
+    private val _systemBrightness = MutableStateFlow(sp.getBoolean("system_brightness", true))
+    val systemBrightness: StateFlow<Boolean> = _systemBrightness.asStateFlow()
+
+    private val _brightness = MutableStateFlow(sp.getFloat("brightness", 0.6f))
+    val brightness: StateFlow<Float> = _brightness.asStateFlow()
+
+    fun setOrientation(v: OrientationMode) = put("orientation", v, _orientation)
+    fun setSystemBrightness(v: Boolean) = put("system_brightness", v, _systemBrightness)
+    fun setBrightness(v: Float) {
+        val clamped = v.coerceIn(0.05f, 1f)
+        sp.edit().putFloat("brightness", clamped).apply()
+        _brightness.value = clamped
+    }
 
     /** TXT 본문 글자 크기 (sp) */
     private val _textSize = MutableStateFlow(sp.getFloat("text_size", 18f))

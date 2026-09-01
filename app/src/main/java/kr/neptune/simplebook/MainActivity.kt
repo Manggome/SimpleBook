@@ -1,6 +1,8 @@
 package kr.neptune.simplebook
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -24,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.core.AppUpdater
+import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.ui.ReaderScreen
 import kr.neptune.simplebook.ui.SettingsScreen
 import kr.neptune.simplebook.ui.ShelfScreen
@@ -41,7 +44,28 @@ class MainActivity : ComponentActivity() {
                 val vm: MainViewModel = viewModel()
                 val reading by vm.reading.collectAsStateWithLifecycle()
                 val immersive by vm.prefs.immersive.collectAsStateWithLifecycle()
+                val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()
+                val systemBrightness by vm.prefs.systemBrightness.collectAsStateWithLifecycle()
+                val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
                 var settingsOpen by remember { mutableStateOf(false) }
+
+                // USER_ 계열을 쓰면 폰의 회전 잠금을 존중하면서 고정할 수 있다
+                LaunchedEffect(orientation) {
+                    requestedOrientation = when (orientation) {
+                        OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+                        OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+                    }
+                }
+
+                // -1 은 "시스템 밝기를 따른다" 는 뜻이다
+                LaunchedEffect(systemBrightness, brightness) {
+                    window.attributes = window.attributes.apply {
+                        screenBrightness =
+                            if (systemBrightness) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                            else brightness.coerceIn(0.05f, 1f)
+                    }
+                }
 
                 BackHandler {
                     when {

@@ -2,13 +2,18 @@ package kr.neptune.simplebook.core
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kr.neptune.simplebook.core.book.Bitmaps
 import kr.neptune.simplebook.core.book.Books
 import java.io.File
 import java.security.MessageDigest
@@ -18,6 +23,9 @@ import java.security.MessageDigest
  *
  * 표지를 얻으려면 압축을 열어야 해서 한 장에 수십~수백 ms 가 든다.
  * 책장이 스크롤될 때마다 다시 뽑으면 못 쓰므로 파일로 남긴다.
+ *
+ * 사용자가 직접 고른 표지는 캐시가 아니라 filesDir 에 둔다. "캐시 비우기" 로
+ * 날아가면 안 되고, 자동 추출보다 항상 우선한다.
  */
 object Covers {
 
@@ -30,6 +38,13 @@ object Covers {
     private val gate = Semaphore(2)
     private val locks = HashMap<String, Mutex>()
 
+    /**
+     * 표지가 바뀔 때마다 올라간다. Coil 의 캐시 키에 섞어 넣어 갱신을 강제한다.
+     * 하나만 바뀌어도 전부 무효가 되지만, 표지는 디스크에 있어 다시 읽는 값이 싸다.
+     */
+    private val _revision = MutableStateFlow(0)
+    val revision: StateFlow<Int> = _revision.asStateFlow()
+
     private fun lockFor(key: String): Mutex = synchronized(locks) {
         locks.getOrPut(key) { Mutex() }
     }
@@ -37,13 +52,25 @@ object Covers {
     fun cacheDir(context: Context): File =
         File(context.cacheDir, "covers").apply { mkdirs() }
 
+    /** 사용자가 직접 지정한 표지. 캐시가 아니라 영구 저장소에 둔다 */
+    fun customDir(context: Context): File =
+        File(context.filesDir, "covers-custom").apply { mkdirs() }
+
     fun cachedFile(context: Context, item: ShelfItem): File =
         File(cacheDir(context), sha1(item.id) + ".jpg")
 
+    fun customFile(context: Context, item: ShelfItem): File =
+        File(customDir(context), sha1(item.id) + ".jpg")
+
+    fun hasCustom(context: Context, item: ShelfItem): Boolean =
+        customFile(context, item).let { it.exists() && it.length() > 0 }
+
     /** 캐시에 있으면 그대로, 없으면 만들어서 돌려준다. 표지를 뽑을 수 없으면 null */
     suspend fun file(context: Context, item: ShelfItem): File? {
-        if (item.isFolder) return null
-        if (item.kind == BookKind.TXT) return null
+        customFile(context, item).takeIf { it.exists() && it.length() > 0 }?.let { return it }
+
+        // 폴더와 TXT 는 뽑아낼 그림이 없다. 직접 지정한 표지만 쓴다
+        if (item.isFolder || item.kind == BookKind.TXT) return null
 
         val target = cachedFile(context, item)
         if (target.exists() && target.length() > 0) return target
@@ -58,6 +85,31 @@ object Covers {
                 }
             }
         }
+    }
+
+    /** 사용자가 고른 이미지를 이 항목의 표지로 삼는다 */
+    suspend fun setCustom(context: Context, item: ShelfItem, source: Uri): Boolean =
+        withContext(Dispatchers.IO) {
+            val ok = runCatching {
+                val bytes = context.contentResolver.openInputStream(source)?.use { it.readBytes() }
+                    ?: return@runCatching false
+                val bitmap = Bitmaps.decode(bytes, WIDTH, HEIGHT) ?: return@runCatching false
+                val target = customFile(context, item)
+                val tmp = File(target.parentFile, target.name + ".tmp")
+                tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                bitmap.recycle()
+                if (target.exists()) target.delete()
+                tmp.renameTo(target).also { if (!it) tmp.delete() }
+            }.onFailure { Log.w(TAG, "표지 지정 실패: ${item.name}", it) }.getOrDefault(false)
+            if (ok) bump()
+            ok
+        }
+
+    /** 직접 지정한 표지를 지우고 자동 추출로 되돌린다 */
+    fun clearCustom(context: Context, item: ShelfItem) {
+        runCatching { customFile(context, item).delete() }
+        runCatching { cachedFile(context, item).delete() }
+        bump()
     }
 
     private suspend fun generate(context: Context, item: ShelfItem, target: File): File? {
@@ -88,10 +140,18 @@ object Covers {
 
     fun forget(context: Context, item: ShelfItem) {
         runCatching { cachedFile(context, item).delete() }
+        runCatching { customFile(context, item).delete() }
+        bump()
     }
 
+    /** 자동 추출분만 비운다. 직접 지정한 표지는 남긴다 */
     fun clear(context: Context) {
         runCatching { cacheDir(context).deleteRecursively() }
+        bump()
+    }
+
+    private fun bump() {
+        _revision.value = _revision.value + 1
     }
 
     private fun sha1(text: String): String =

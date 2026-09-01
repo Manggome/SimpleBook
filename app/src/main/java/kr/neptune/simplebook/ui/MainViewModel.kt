@@ -201,6 +201,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _notice.value = "${item.title} 을(를) 안 읽음으로 표시했습니다"
     }
 
+    /**
+     * 같은 폴더의 다음 책. 이름 자연 정렬 기준이라 "1화, 2화, 10화" 가 순서대로 이어진다.
+     * 마지막 쪽에서 "다음 화" 를 띄울 때 쓴다.
+     */
+    fun nextBook(item: ShelfItem): ShelfItem? {
+        val siblings = (if (item.parentId == null) store.roots.value
+        else store.cached(item.parentId) ?: _items.value)
+            .filterNot { it.isFolder }
+            .sortedWith(compareBy(Library.NATURAL) { it.title })
+        val here = siblings.indexOfFirst { it.id == item.id }
+        return siblings.getOrNull(here + 1).takeIf { here >= 0 }
+    }
+
+    // ------------------------------------------------------------ 표지
+
+    fun setCover(item: ShelfItem, source: Uri) {
+        viewModelScope.launch {
+            val ok = Covers.setCustom(ctx, item, source)
+            _notice.value = if (ok) "표지를 바꿨습니다" else "이 이미지를 표지로 쓰지 못했습니다"
+        }
+    }
+
+    fun resetCover(item: ShelfItem) {
+        Covers.clearCustom(ctx, item)
+        _notice.value = "표지를 기본으로 되돌렸습니다"
+    }
+
+    fun hasCustomCover(item: ShelfItem): Boolean = Covers.hasCustom(ctx, item)
+
     // ------------------------------------------------------------ 정렬
 
     fun sorted(list: List<ShelfItem>, mode: SortMode): List<ShelfItem> {

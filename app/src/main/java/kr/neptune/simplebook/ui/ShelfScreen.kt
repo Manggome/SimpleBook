@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -32,11 +34,15 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +52,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -65,12 +72,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import kr.neptune.simplebook.core.BookKind
 import kr.neptune.simplebook.core.BookState
+import kr.neptune.simplebook.core.CoverRequest
+import kr.neptune.simplebook.core.Covers
 import kr.neptune.simplebook.core.ShelfItem
 import kr.neptune.simplebook.core.SortMode
 import kr.neptune.simplebook.core.ViewMode
@@ -86,11 +96,13 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     val states by vm.store.states.collectAsStateWithLifecycle()
     val viewMode by vm.prefs.viewMode.collectAsStateWithLifecycle()
     val sortMode by vm.prefs.sortMode.collectAsStateWithLifecycle()
+    val coverRevision by Covers.revision.collectAsStateWithLifecycle()
 
     val snackbar = remember { SnackbarHostState() }
     var sortOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<ShelfItem?>(null) }
+    var coverTarget by remember { mutableStateOf<ShelfItem?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -110,6 +122,14 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             data.data?.let { if (isEmpty()) add(it) }
         }
         if (uris.isNotEmpty()) vm.registerFiles(uris)
+    }
+
+    val coverPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        val target = coverTarget
+        coverTarget = null
+        if (uri != null && target != null) vm.setCover(target, uri)
     }
 
     LaunchedEffect(notice) {
@@ -243,7 +263,7 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     if (here?.folderHasImages == true) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             ReadThisFolder { vm.openFolderAsBook(here) }
                         }
                     }
@@ -251,6 +271,7 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                         GridCell(
                             item = item,
                             state = states[item.id],
+                            revision = coverRevision,
                             onClick = { onItemClick(vm, item) },
                             onLongClick = { menuFor = item },
                         )
@@ -268,6 +289,7 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                         ListRow(
                             item = item,
                             state = states[item.id],
+                            revision = coverRevision,
                             onClick = { onItemClick(vm, item) },
                             onLongClick = { menuFor = item },
                         )
@@ -285,6 +307,7 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
         ItemMenu(
             item = item,
             state = states[item.id],
+            hasCustomCover = vm.hasCustomCover(item),
             onDismiss = { menuFor = null },
             onRemove = {
                 vm.removeRoot(item)
@@ -292,6 +315,15 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             },
             onMarkUnread = {
                 vm.markUnread(item)
+                menuFor = null
+            },
+            onPickCover = {
+                coverTarget = item
+                menuFor = null
+                coverPicker.launch("image/*")
+            },
+            onResetCover = {
+                vm.resetCover(item)
                 menuFor = null
             },
         )
@@ -326,6 +358,7 @@ private fun ReadThisFolder(onClick: () -> Unit) {
 private fun GridCell(
     item: ShelfItem,
     state: BookState?,
+    revision: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -340,32 +373,23 @@ private fun GridCell(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.isFolder) {
-                Icon(
-                    Icons.Default.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(56.dp),
-                )
-            } else {
-                AsyncImage(
-                    model = item,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                if (item.kind == BookKind.TXT) {
-                    Icon(
-                        Icons.Default.MenuBook,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(48.dp),
-                    )
-                }
-            }
+            Placeholder(item)
+            AsyncImage(
+                model = CoverRequest(item, revision),
+                contentDescription = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
             KindBadge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
+
             if (state != null && state.started) {
-                ProgressBadge(state, Modifier.align(Alignment.BottomStart).padding(4.dp))
+                ProgressBadge(state, Modifier.align(Alignment.TopStart).padding(4.dp))
+                ProgressBar(
+                    percent = state.percent,
+                    done = state.finished,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    thickness = 5,
+                )
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -390,6 +414,7 @@ private fun GridCell(
 private fun ListRow(
     item: ShelfItem,
     state: BookState?,
+    revision: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -409,55 +434,95 @@ private fun ListRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (item.isFolder) {
-                Icon(
-                    Icons.Default.Folder,
-                    null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
-                )
-            } else {
-                AsyncImage(
-                    model = item,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            Placeholder(item)
+            AsyncImage(
+                model = CoverRequest(item, revision),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 buildString {
                     append(if (item.isFolder) "폴더 · ${item.childCount}개" else item.kind?.label ?: "")
                     if (state != null && state.started) {
                         append(" · ")
-                        append(if (state.finished) "다 읽음" else "${state.percent}%")
+                        append(
+                            if (state.finished) "다 읽음"
+                            else "${state.page + 1}/${state.pageCount}쪽 · ${state.percent}%"
+                        )
                     }
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (state != null && state.started) {
+                Spacer(Modifier.height(4.dp))
+                ProgressBar(
+                    percent = state.percent,
+                    done = state.finished,
+                    modifier = Modifier.clip(RoundedCornerShape(2.dp)),
+                    thickness = 4,
+                )
+            }
         }
+    }
+}
+
+/** 표지를 못 뽑는 항목(폴더·TXT)에 깔아 두는 밑그림 */
+@Composable
+private fun Placeholder(item: ShelfItem) {
+    val icon = when {
+        item.isFolder -> Icons.Default.Folder
+        item.kind == BookKind.TXT -> Icons.Default.MenuBook
+        else -> null
+    } ?: return
+    Icon(
+        icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.fillMaxSize(0.4f),
+    )
+}
+
+/** 읽은 비율 막대 */
+@Composable
+private fun ProgressBar(
+    percent: Int,
+    done: Boolean,
+    modifier: Modifier = Modifier,
+    thickness: Int = 4,
+) {
+    val fill = if (done) MaterialTheme.colorScheme.primary else Color(0xFF7FC4A0)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(thickness.dp)
+            .background(Color(0x66000000)),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth((percent / 100f).coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(fill)
+        )
     }
 }
 
 @Composable
 private fun KindBadge(item: ShelfItem, modifier: Modifier = Modifier) {
-    val label = when {
-        item.isFolder -> return
-        item.kind == null -> return
-        else -> item.kind.label
-    }
+    if (item.isFolder || item.kind == null) return
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(4.dp),
         color = Color(0xCC000000),
     ) {
         Text(
-            label,
+            item.kind.label,
             style = MaterialTheme.typography.labelSmall,
             color = Color.White,
             modifier = Modifier.padding(4.dp, 1.dp),
@@ -482,49 +547,82 @@ private fun ProgressBadge(state: BookState, modifier: Modifier = Modifier) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ItemMenu(
     item: ShelfItem,
     state: BookState?,
+    hasCustomCover: Boolean,
     onDismiss: () -> Unit,
     onRemove: () -> Unit,
     onMarkUnread: () -> Unit,
+    onPickCover: () -> Unit,
+    onResetCover: () -> Unit,
 ) {
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
                 Text(
-                    if (item.isFolder) "폴더 · ${item.childCount}개"
-                    else "${item.kind?.label ?: "파일"}" +
-                        (if (state?.started == true) " · ${state.page + 1}/${state.pageCount}쪽" else ""),
+                    buildString {
+                        append(if (item.isFolder) "폴더 · ${item.childCount}개" else item.kind?.label ?: "파일")
+                        if (state?.started == true) {
+                            append(" · ${state.page + 1}/${state.pageCount}쪽 (${state.percent}%)")
+                        }
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                Spacer(Modifier.height(12.dp))
+                MenuAction(Icons.Default.Image, "표지 바꾸기", onPickCover)
+                if (hasCustomCover) {
+                    MenuAction(Icons.Default.Restore, "표지 되돌리기", onResetCover)
+                }
+                if (state?.started == true) {
+                    MenuAction(Icons.Default.Restore, "안 읽음으로 표시", onMarkUnread)
+                }
                 if (item.isRoot) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         "책장에서 빼도 폰에 있는 원본은 지워지지 않습니다.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         },
         confirmButton = {
-            if (item.isRoot) {
-                TextButton(onClick = onRemove) { Text("책장에서 빼기") }
-            } else {
-                TextButton(onClick = onDismiss) { Text("닫기") }
-            }
+            if (item.isRoot) TextButton(onClick = onRemove) { Text("책장에서 빼기") }
+            else TextButton(onClick = onDismiss) { Text("닫기") }
         },
         dismissButton = {
-            if (state?.started == true) {
-                TextButton(onClick = onMarkUnread) { Text("안 읽음으로") }
-            }
+            if (item.isRoot) TextButton(onClick = onDismiss) { Text("닫기") }
         },
     )
+}
+
+@Composable
+private fun MenuAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        color = Color.Transparent,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(4.dp, 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
 @Composable
@@ -548,18 +646,16 @@ private fun EmptyShelf(onFolder: () -> Unit, onFile: () -> Unit) {
                 "ZIP·CBZ, RAR·CBR, PDF, TXT, 이미지 폴더를 읽습니다.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            androidx.compose.material3.Button(onClick = onFolder) {
+            Button(onClick = onFolder) {
                 Icon(Icons.Default.Folder, null)
                 Spacer(Modifier.width(8.dp))
                 Text("폴더 등록")
             }
-            androidx.compose.material3.OutlinedButton(onClick = onFile) {
-                Text("파일 추가")
-            }
+            OutlinedButton(onClick = onFile) { Text("파일 추가") }
         }
     }
 }

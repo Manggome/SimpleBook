@@ -28,6 +28,21 @@ enum class SpreadMode(val label: String) {
     DOUBLE("2쪽 고정"),
 }
 
+/** 페이지가 넘어갈 때의 움직임 */
+enum class PageEffect(val label: String) {
+    /** 페이지가 손가락을 따라 옆으로 밀려 나간다 */
+    SLIDE("슬라이드"),
+    /** 애니메이션 없이 즉시 바뀐다. 느린 기기에서 체감이 빠르다 */
+    NONE("없음"),
+}
+
+/** 화면 회전 */
+enum class OrientationMode(val label: String) {
+    AUTO("자동"),
+    PORTRAIT("세로 고정"),
+    LANDSCAPE("가로 고정"),
+}
+
 /** 파일 종류. 렌더러가 여기서 갈린다 */
 enum class BookKind(val label: String) {
     ZIP("ZIP/CBZ"),

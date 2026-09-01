@@ -31,14 +31,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import kr.neptune.simplebook.R
 import kr.neptune.simplebook.core.AppUpdater
+import kr.neptune.simplebook.core.OrientationMode
+import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
 import kr.neptune.simplebook.core.SpreadMode
 import kotlin.math.roundToInt
@@ -58,6 +64,18 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle()
     val immersive by vm.prefs.immersive.collectAsStateWithLifecycle()
     val autoUpdate by vm.prefs.autoUpdate.collectAsStateWithLifecycle()
+    val pageEffect by vm.prefs.pageEffect.collectAsStateWithLifecycle()
+    val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()
+    val systemBrightness by vm.prefs.systemBrightness.collectAsStateWithLifecycle()
+    val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
+
+    var notesOpen by remember { mutableStateOf(false) }
+    val changelog = remember {
+        runCatching {
+            context.resources.openRawResource(R.raw.changelog)
+                .bufferedReader().use { it.readText() }
+        }.getOrDefault("패치노트를 읽지 못했습니다")
+    }
     val updateState by AppUpdater.state.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -121,21 +139,67 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     valueRange = 0.7f..1.6f,
                 )
                 Caption(
-                    "낮출수록 쉽게 2쪽이 됩니다. 1.00 이면 가로가 세로보다 길 때 — " +
-                        "폴드를 펴고 가로로 들었을 때가 여기 해당합니다. " +
-                        "펼친 채 세로로 들었을 때도 2쪽으로 보고 싶으면 0.85 근처로 내려 보세요."
+                    "낮출수록 쉽게 2쪽이 됩니다. 기본값 0.85 는 폴드를 펴면 세로로 들든 " +
+                        "가로로 들든 2쪽이 되는 지점입니다. 1.00 으로 올리면 가로로 들었을 때만 " +
+                        "2쪽이 됩니다."
                 )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text("넘김 효과", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PageEffect.entries.forEach { e ->
+                    FilterChip(
+                        selected = e == pageEffect,
+                        onClick = { vm.prefs.setPageEffect(e) },
+                        label = { Text(e.label) },
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
             ToggleRow("표지는 혼자 두기", "2쪽 보기에서 1쪽만 단독으로 띄워 종이책 펼침면과 짝을 맞춥니다", coverAlone) {
                 vm.prefs.setCoverAlone(it)
             }
-            ToggleRow("화면 좌우 탭으로 넘기기", "끄면 탭이 메뉴 열기로만 동작합니다", tapToTurn) {
+            ToggleRow("화면 좌우 탭으로 넘기기", "좌 25% / 우 25% 로 넘기고 가운데 50% 는 메뉴. 끄면 어디를 눌러도 메뉴만 열립니다", tapToTurn) {
                 vm.prefs.setTapToTurn(it)
             }
             ToggleRow("읽는 동안 화면 켜두기", null, keepScreenOn) { vm.prefs.setKeepScreenOn(it) }
             ToggleRow("읽을 때 상태바 숨기기", null, immersive) { vm.prefs.setImmersive(it) }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            SectionTitle("화면")
+
+            Text("회전", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OrientationMode.entries.forEach { o ->
+                    FilterChip(
+                        selected = o == orientation,
+                        onClick = { vm.prefs.setOrientation(o) },
+                        label = { Text(o.label) },
+                    )
+                }
+            }
+            Caption("자동은 폰의 회전 잠금 설정을 그대로 따릅니다.")
+
+            Spacer(Modifier.height(8.dp))
+            ToggleRow("시스템 밝기 사용", "끄면 이 앱에서만 밝기를 따로 잡습니다", systemBrightness) {
+                vm.prefs.setSystemBrightness(it)
+            }
+            if (!systemBrightness) {
+                Text(
+                    "앱 밝기  ${(brightness * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = brightness,
+                    onValueChange = { vm.prefs.setBrightness(it) },
+                    valueRange = 0.05f..1f,
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
@@ -207,6 +271,23 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             SectionTitle("정리")
             OutlinedButton(onClick = { vm.clearCovers() }) { Text("표지·목록 캐시 비우기") }
             Caption("표지가 예전 것으로 남아 있거나 목록이 실제와 다를 때 씁니다. 책은 지워지지 않습니다.")
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            SectionTitle("패치노트")
+            OutlinedButton(onClick = { notesOpen = !notesOpen }) {
+                Text(if (notesOpen) "접기" else "이 버전까지의 변경 사항 보기")
+            }
+            if (notesOpen) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    changelog.trim(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
