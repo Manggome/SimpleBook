@@ -143,10 +143,19 @@ data class BookState(
     val direction: ReadDirection? = null,
     /** 이 책에만 적용할 펼침 설정. null 이면 전역 기본값을 따른다 */
     val spread: SpreadMode? = null,
+    /**
+     * 손으로 "다 읽음" 표시한 것.
+     * 한 번도 열어 본 적 없는 책은 전체 쪽수를 몰라서 진행률로는 표시할 수 없다.
+     */
+    val done: Boolean = false,
 ) {
     val percent: Int
-        get() = if (pageCount <= 0) 0 else ((page + 1) * 100 / pageCount).coerceIn(0, 100)
+        get() = when {
+            done -> 100
+            pageCount <= 0 -> 0
+            else -> ((page + 1) * 100 / pageCount).coerceIn(0, 100)
+        }
 
-    val started: Boolean get() = lastReadAt > 0L
-    val finished: Boolean get() = pageCount > 0 && page >= pageCount - 1
+    val started: Boolean get() = lastReadAt > 0L || done
+    val finished: Boolean get() = done || (pageCount > 0 && page >= pageCount - 1)
 }

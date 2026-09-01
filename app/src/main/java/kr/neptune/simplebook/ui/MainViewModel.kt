@@ -225,8 +225,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 옮길 수 있는 앱 폴더 목록 (자기 자신 제외) */
-    fun folderTargets(item: ShelfItem): List<ShelfItem> =
-        store.roots.value.filter { it.isVirtual && it.id != item.id }
+    fun folderTargets(item: ShelfItem): List<ShelfItem> = folderTargets(setOf(item.id))
+
+    fun folderTargets(exclude: Set<String>): List<ShelfItem> =
+        store.roots.value.filter { it.isVirtual && it.id !in exclude }
             .sortedWith(compareBy(Library.NATURAL) { it.title })
 
     fun moveTo(item: ShelfItem, folderId: String?) {
@@ -259,6 +261,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setBookState(id: String, block: (BookState) -> BookState) = store.updateState(id, block)
+
+    /** 고른 것들을 한꺼번에 다 읽음으로 */
+    fun markReadAll(items: List<ShelfItem>) {
+        val books = items.filterNot { it.isFolder }
+        if (books.isEmpty()) {
+            _notice.value = "책을 고른 다음에 눌러 주세요"
+            return
+        }
+        // lastReadAt 은 건드리지 않는다. 손으로 표시한 것이 최근에 읽은 책을 밀어내면 곤란하다
+        books.forEach { book -> store.updateState(book.id) { it.copy(done = true) } }
+        _notice.value = "${books.size}권을 다 읽음으로 표시했습니다"
+    }
+
+    /** 고른 것들을 한꺼번에 앱 폴더로 */
+    fun moveAllTo(items: List<ShelfItem>, folderId: String?) {
+        val roots = items.filter { it.isRoot }
+        if (roots.isEmpty()) {
+            _notice.value = "책장에 직접 등록한 항목만 옮길 수 있습니다"
+            return
+        }
+        roots.forEach { store.moveRoot(it.id, folderId) }
+        _notice.value =
+            if (folderId == null) "${roots.size}개를 최상위로 옮겼습니다"
+            else "${roots.size}개를 옮겼습니다"
+    }
+
+    /** 고른 것들을 한꺼번에 책장에서 빼기. 폰의 파일은 건드리지 않는다 */
+    fun removeRoots(items: List<ShelfItem>) {
+        val roots = items.filter { it.isRoot }
+        if (roots.isEmpty()) {
+            _notice.value = "책장에 직접 등록한 항목만 뺄 수 있습니다"
+            return
+        }
+        roots.forEach { root ->
+            store.removeRoot(root.id)
+            Covers.forget(ctx, root)
+            if (!root.isVirtual) Library.releasePermission(ctx, root)
+        }
+        _notice.value = "${roots.size}개를 책장에서 뺐습니다 (원본 파일은 그대로입니다)"
+    }
 
     /** 고른 것들을 한꺼번에 안 읽음으로. 폴더는 읽기 상태가 없으니 건너뛴다 */
     fun markUnreadAll(items: List<ShelfItem>) {
@@ -366,9 +408,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SortMode.TITLE -> folders.sortedWith(byTitle) + books.sortedWith(byTitle)
             // 최근에 읽은 것이 위로. 한 번도 안 읽은 책은 제목순으로 뒤에 붙인다
             SortMode.RECENT -> {
-                val read = books.filter { (states[it.id]?.lastReadAt ?: 0L) > 0L }
+                val read = books.filter { states[it.id]?.started == true }
                     .sortedByDescending { states[it.id]?.lastReadAt ?: 0L }
-                val unread = books.filterNot { (states[it.id]?.lastReadAt ?: 0L) > 0L }
+                val unread = books.filterNot { states[it.id]?.started == true }
                     .sortedWith(byTitle)
                 read + folders.sortedWith(byTitle) + unread
             }

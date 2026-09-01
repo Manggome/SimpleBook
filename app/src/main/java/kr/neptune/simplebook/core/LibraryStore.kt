@@ -164,6 +164,7 @@ class LibraryStore(context: Context) {
                     ?.let { runCatching { ReadDirection.valueOf(it) }.getOrNull() },
                 spread = o.optString("spread").takeIf { it.isNotEmpty() }
                     ?.let { runCatching { SpreadMode.valueOf(it) }.getOrNull() },
+                done = o.optBoolean("done", false),
             )
         }
         _states.value = map
@@ -185,6 +186,7 @@ class LibraryStore(context: Context) {
                                 put("lastReadAt", s.lastReadAt)
                                 s.direction?.let { put("direction", it.name) }
                                 s.spread?.let { put("spread", it.name) }
+                                if (s.done) put("done", true)
                             })
                         }
                     })

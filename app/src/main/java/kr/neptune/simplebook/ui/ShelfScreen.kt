@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Folder
@@ -121,6 +123,8 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     var pickInside by remember { mutableStateOf<ShelfItem?>(null) }
     var selectMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<String>()) }
+    var bulkMove by remember { mutableStateOf(false) }
+    var bulkRemove by remember { mutableStateOf(false) }
     val coverCandidates by vm.coverCandidates.collectAsStateWithLifecycle()
     val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
     var newFolderOpen by remember { mutableStateOf(false) }
@@ -277,21 +281,36 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
         },
         bottomBar = {
             if (selectMode) {
+                val picked = sortedItems.filter { selected.contains(it.id) }
+                val any = picked.isNotEmpty()
                 BottomAppBar {
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        if (selected.isEmpty()) "책을 골라 주세요" else "${selected.size}개",
-                        style = MaterialTheme.typography.bodyMedium,
+                        if (any) "${picked.size}개" else "고르기",
+                        style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(
+                    IconButton(
                         onClick = {
-                            vm.markUnreadAll(sortedItems.filter { selected.contains(it.id) })
+                            vm.markUnreadAll(picked)
                             exitSelect()
                         },
-                        enabled = selected.isNotEmpty(),
-                    ) { Text("안 읽음으로") }
-                    Spacer(Modifier.width(12.dp))
+                        enabled = any,
+                    ) { Icon(Icons.Default.Restore, contentDescription = "안 읽음으로") }
+                    IconButton(
+                        onClick = {
+                            vm.markReadAll(picked)
+                            exitSelect()
+                        },
+                        enabled = any,
+                    ) { Icon(Icons.Default.DoneAll, contentDescription = "다 읽음으로") }
+                    IconButton(onClick = { bulkMove = true }, enabled = any) {
+                        Icon(Icons.Default.DriveFileMove, contentDescription = "폴더로 옮기기")
+                    }
+                    IconButton(onClick = { bulkRemove = true }, enabled = any) {
+                        Icon(Icons.Default.Delete, contentDescription = "책장에서 빼기")
+                    }
+                    Spacer(Modifier.width(4.dp))
                 }
             }
         },
@@ -507,6 +526,47 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 moveFor = null
             },
             onDismiss = { moveFor = null },
+        )
+    }
+
+    if (bulkMove) {
+        val picked = sortedItems.filter { selected.contains(it.id) }
+        BulkMoveDialog(
+            count = picked.count { it.isRoot },
+            folders = vm.folderTargets(selected),
+            onMove = {
+                vm.moveAllTo(picked, it)
+                bulkMove = false
+                exitSelect()
+            },
+            onDismiss = { bulkMove = false },
+        )
+    }
+
+    if (bulkRemove) {
+        val picked = sortedItems.filter { selected.contains(it.id) }
+        val count = picked.count { it.isRoot }
+        AlertDialog(
+            onDismissRequest = { bulkRemove = false },
+            title = { Text("책장에서 빼기") },
+            text = {
+                Text(
+                    if (count == 0) "고른 것 중에 책장에서 뺄 수 있는 항목이 없습니다. " +
+                        "직접 등록한 폴더나 파일만 뺄 수 있습니다."
+                    else "${count}개를 책장에서 뺍니다. 폰에 있는 원본 파일은 지워지지 않습니다."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.removeRoots(picked)
+                        bulkRemove = false
+                        exitSelect()
+                    },
+                    enabled = count > 0,
+                ) { Text("빼기") }
+            },
+            dismissButton = { TextButton(onClick = { bulkRemove = false }) { Text("취소") } },
         )
     }
 
@@ -904,6 +964,47 @@ private fun NameDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+/** 고른 여러 개를 한꺼번에 앱 폴더로 옮기는 창 */
+@Composable
+private fun BulkMoveDialog(
+    count: Int,
+    folders: List<ShelfItem>,
+    onMove: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("어디로 옮길까요") },
+        text = {
+            Column {
+                Text(
+                    if (count == 0) "고른 것 중에 옮길 수 있는 항목이 없습니다. " +
+                        "직접 등록한 폴더나 파일만 옮길 수 있습니다."
+                    else "${count}개를 옮깁니다. 폰의 파일은 그대로 두고 책장 안에서만 묶입니다.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (count > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    MenuAction(Icons.Default.Folder, "책장 최상위") { onMove(null) }
+                    folders.forEach { folder ->
+                        MenuAction(Icons.Default.Folder, folder.title) { onMove(folder.id) }
+                    }
+                    if (folders.isEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "만들어 둔 폴더가 없습니다. + 버튼의 \"새 폴더 만들기\" 로 먼저 만들어 주세요.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
     )
 }
 
