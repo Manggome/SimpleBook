@@ -91,6 +91,11 @@ data class ShelfItem(
     val folderHasImages: Boolean = false,
     /** 사용자가 직접 등록한 최상위 항목인지 (제거 버튼 노출용) */
     val isRoot: Boolean = false,
+    /**
+     * 앱 안에서만 존재하는 폴더. 폰에는 이런 폴더가 없고 등록한 항목을 담아 두기만 한다.
+     * 실제 파일을 옮기지 않으므로 원본은 그대로다.
+     */
+    val isVirtual: Boolean = false,
 ) {
     /** 확장자를 뗀 표시용 제목 */
     val title: String

@@ -35,7 +35,10 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
@@ -55,6 +58,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -70,6 +74,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -107,6 +112,10 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     var coverTarget by remember { mutableStateOf<ShelfItem?>(null) }
     var pickInside by remember { mutableStateOf<ShelfItem?>(null) }
     val coverCandidates by vm.coverCandidates.collectAsStateWithLifecycle()
+    val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
+    var newFolderOpen by remember { mutableStateOf(false) }
+    var renameFor by remember { mutableStateOf<ShelfItem?>(null) }
+    var moveFor by remember { mutableStateOf<ShelfItem?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -145,6 +154,9 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
 
     val sortedItems = remember(items, sortMode, states) { vm.sorted(items, sortMode) }
     val here = path.lastOrNull()
+    val sections = remember(sortedItems, groupByKind) { sectionsOf(sortedItems, groupByKind) }
+    // 앱 폴더 안에서도 등록과 폴더 만들기를 할 수 있어야 한다
+    val canAdd = here == null || here.isVirtual
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -216,9 +228,13 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
             )
         },
         floatingActionButton = {
-            if (path.isEmpty()) {
+            if (canAdd) {
                 Box {
-                    FloatingActionButton(onClick = { addOpen = true }) {
+                    FloatingActionButton(
+                        onClick = { addOpen = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
                         Icon(Icons.Default.Add, contentDescription = "추가")
                     }
                     DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
@@ -236,6 +252,14 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                             onClick = {
                                 addOpen = false
                                 filePicker.launch(vm.openFileIntent())
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("새 폴더 만들기") },
+                            leadingIcon = { Icon(Icons.Default.CreateNewFolder, null) },
+                            onClick = {
+                                addOpen = false
+                                newFolderOpen = true
                             },
                         )
                     }
@@ -271,14 +295,21 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                             ReadThisFolder { vm.openFolderAsBook(here) }
                         }
                     }
-                    items(sortedItems, key = { it.id }) { item ->
-                        GridCell(
-                            item = item,
-                            state = states[item.id],
-                            revision = coverRevision,
-                            onClick = { onItemClick(vm, item) },
-                            onLongClick = { menuFor = item },
-                        )
+                    sections.forEach { (title, list) ->
+                        if (title.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "head:" + title) {
+                                SectionHeader(title, list.size)
+                            }
+                        }
+                        items(list, key = { it.id }) { item ->
+                            GridCell(
+                                item = item,
+                                state = states[item.id],
+                                revision = coverRevision,
+                                onClick = { onItemClick(vm, item) },
+                                onLongClick = { menuFor = item },
+                            )
+                        }
                     }
                 }
 
@@ -289,14 +320,19 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                     if (here?.folderHasImages == true) {
                         item { ReadThisFolder { vm.openFolderAsBook(here) } }
                     }
-                    items(sortedItems, key = { it.id }) { item ->
-                        ListRow(
-                            item = item,
-                            state = states[item.id],
-                            revision = coverRevision,
-                            onClick = { onItemClick(vm, item) },
-                            onLongClick = { menuFor = item },
-                        )
+                    sections.forEach { (title, list) ->
+                        if (title.isNotEmpty()) {
+                            item(key = "head:" + title) { SectionHeader(title, list.size) }
+                        }
+                        items(list, key = { it.id }) { item ->
+                            ListRow(
+                                item = item,
+                                state = states[item.id],
+                                revision = coverRevision,
+                                onClick = { onItemClick(vm, item) },
+                                onLongClick = { menuFor = item },
+                            )
+                        }
                     }
                 }
             }
@@ -335,6 +371,54 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 menuFor = null
                 vm.loadCoverCandidates(item)
             },
+            onRename = {
+                renameFor = item
+                menuFor = null
+            },
+            onMove = {
+                moveFor = item
+                menuFor = null
+            },
+        )
+    }
+
+    if (newFolderOpen) {
+        NameDialog(
+            title = "새 폴더",
+            hint = "폴더 이름",
+            initial = "",
+            note = "앱 책장 안에만 만들어집니다. 폰의 파일은 옮기지 않습니다.",
+            onConfirm = {
+                vm.createFolder(it)
+                newFolderOpen = false
+            },
+            onDismiss = { newFolderOpen = false },
+        )
+    }
+
+    renameFor?.let { target ->
+        NameDialog(
+            title = "이름 바꾸기",
+            hint = "폴더 이름",
+            initial = target.title,
+            note = null,
+            onConfirm = {
+                vm.renameFolder(target, it)
+                renameFor = null
+            },
+            onDismiss = { renameFor = null },
+        )
+    }
+
+    moveFor?.let { target ->
+        MoveDialog(
+            item = target,
+            folders = vm.folderTargets(target),
+            onMove = {
+                vm.moveTo(target, it)
+                moveFor = null
+            },
+            onDismiss = { moveFor = null },
         )
     }
 
@@ -454,6 +538,8 @@ private fun GridCell(
     Column(
         Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
+        // 다 읽은 책은 흐리게 둔다. 안 읽은 것이 먼저 눈에 들어오게
+        val dim = if (state?.finished == true) 0.42f else 1f
         Box(
             Modifier
                 .fillMaxWidth()
@@ -462,13 +548,15 @@ private fun GridCell(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Placeholder(item)
-            AsyncImage(
-                model = CoverRequest(item, revision),
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            Box(Modifier.fillMaxSize().alpha(dim), contentAlignment = Alignment.Center) {
+                Placeholder(item)
+                AsyncImage(
+                    model = CoverRequest(item, revision),
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             KindBadge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
 
             if (state != null && state.started) {
@@ -477,7 +565,7 @@ private fun GridCell(
                     percent = state.percent,
                     done = state.finished,
                     modifier = Modifier.align(Alignment.BottomCenter),
-                    thickness = 5,
+                    thickness = 9,
                 )
             }
         }
@@ -487,6 +575,7 @@ private fun GridCell(
             style = MaterialTheme.typography.bodySmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.alpha(dim),
         )
         if (item.isFolder && item.childCount > 0) {
             Text(
@@ -520,7 +609,8 @@ private fun ListRow(
                 .width(44.dp)
                 .height(62.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .alpha(if (state?.finished == true) 0.42f else 1f),
             contentAlignment = Alignment.Center,
         ) {
             Placeholder(item)
@@ -550,12 +640,12 @@ private fun ListRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (state != null && state.started) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(5.dp))
                 ProgressBar(
                     percent = state.percent,
                     done = state.finished,
-                    modifier = Modifier.clip(RoundedCornerShape(2.dp)),
-                    thickness = 4,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)),
+                    thickness = 8,
                 )
             }
         }
@@ -578,20 +668,25 @@ private fun Placeholder(item: ShelfItem) {
     )
 }
 
-/** 읽은 비율 막대 */
+/**
+ * 읽은 비율 막대.
+ *
+ * 표지 그림이 복잡하면 얇은 선은 묻혀 버린다. 불투명한 검은 띠를 깔고 그 위에
+ * 채우기 때문에 어떤 표지 위에서도 읽힌다.
+ */
 @Composable
 private fun ProgressBar(
     percent: Int,
     done: Boolean,
     modifier: Modifier = Modifier,
-    thickness: Int = 4,
+    thickness: Int = 8,
 ) {
-    val fill = if (done) MaterialTheme.colorScheme.primary else Color(0xFF7FC4A0)
+    val fill = if (done) MaterialTheme.colorScheme.primary else Color(0xFF7FD8AC)
     Box(
         modifier
             .fillMaxWidth()
             .height(thickness.dp)
-            .background(Color(0x66000000)),
+            .background(Color(0xE0000000)),
     ) {
         Box(
             Modifier
@@ -600,6 +695,127 @@ private fun ProgressBar(
                 .background(fill)
         )
     }
+}
+
+/** 종류별로 나눠 볼 때의 구분선 */
+@Composable
+private fun SectionHeader(title: String, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** 종류별 묶음. 나누지 않을 때는 통째로 한 덩이 */
+private fun sectionsOf(
+    items: List<ShelfItem>,
+    group: Boolean,
+): List<Pair<String, List<ShelfItem>>> {
+    if (!group) return listOf("" to items)
+    val out = ArrayList<Pair<String, List<ShelfItem>>>(4)
+    fun add(title: String, list: List<ShelfItem>) {
+        if (list.isNotEmpty()) out += title to list
+    }
+    add("폴더", items.filter { it.isFolder })
+    add("만화 · 이미지", items.filter {
+        !it.isFolder &&
+            (it.kind == BookKind.ZIP || it.kind == BookKind.RAR || it.kind == BookKind.IMAGE_FOLDER)
+    })
+    add("PDF", items.filter { !it.isFolder && it.kind == BookKind.PDF })
+    add("텍스트", items.filter { !it.isFolder && it.kind == BookKind.TXT })
+    return out
+}
+
+/** 폴더 이름을 넣거나 고치는 창 */
+@Composable
+private fun NameDialog(
+    title: String,
+    hint: String,
+    initial: String,
+    note: String?,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.take(60) },
+                    singleLine = true,
+                    label = { Text(hint) },
+                )
+                if (note != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value) }, enabled = value.isNotBlank()) {
+                Text("확인")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+/** 등록 항목을 앱 폴더로 옮기는 창 */
+@Composable
+private fun MoveDialog(
+    item: ShelfItem,
+    folders: List<ShelfItem>,
+    onMove: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("어디로 옮길까요") },
+        text = {
+            Column {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                MenuAction(Icons.Default.Folder, "책장 최상위") { onMove(null) }
+                folders.forEach { folder ->
+                    MenuAction(Icons.Default.Folder, folder.title) { onMove(folder.id) }
+                }
+                if (folders.isEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "만들어 둔 폴더가 없습니다. + 버튼의 \"새 폴더 만들기\" 로 먼저 만들어 주세요.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
 }
 
 @Composable
@@ -647,6 +863,8 @@ private fun ItemMenu(
     onPickCover: () -> Unit,
     onResetCover: () -> Unit,
     onPickInside: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -666,8 +884,14 @@ private fun ItemMenu(
 
                 Spacer(Modifier.height(12.dp))
                 MenuAction(Icons.Default.Image, "표지 바꾸기 (사진에서)", onPickCover)
-                if (item.isFolder) {
+                if (item.isFolder && !item.isVirtual) {
                     MenuAction(Icons.Default.Collections, "안에 있는 책에서 표지 가져오기", onPickInside)
+                }
+                if (item.isVirtual) {
+                    MenuAction(Icons.Default.DriveFileRenameOutline, "이름 바꾸기", onRename)
+                }
+                if (item.isRoot) {
+                    MenuAction(Icons.Default.DriveFileMove, "폴더로 옮기기", onMove)
                 }
                 if (hasCustomCover) {
                     MenuAction(Icons.Default.Restore, "표지 되돌리기", onResetCover)
@@ -678,7 +902,9 @@ private fun ItemMenu(
                 if (item.isRoot) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "책장에서 빼도 폰에 있는 원본은 지워지지 않습니다.",
+                        if (item.isVirtual)
+                            "앱 안에만 있는 폴더입니다. 없애면 안에 있던 것은 최상위로 올라옵니다."
+                        else "책장에서 빼도 폰에 있는 원본은 지워지지 않습니다.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -686,7 +912,11 @@ private fun ItemMenu(
             }
         },
         confirmButton = {
-            if (item.isRoot) TextButton(onClick = onRemove) { Text("책장에서 빼기") }
+            if (item.isRoot) {
+                TextButton(onClick = onRemove) {
+                    Text(if (item.isVirtual) "폴더 없애기" else "책장에서 빼기")
+                }
+            }
             else TextButton(onClick = onDismiss) { Text("닫기") }
         },
         dismissButton = {

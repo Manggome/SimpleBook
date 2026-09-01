@@ -15,6 +15,7 @@ import kr.neptune.simplebook.SimpleBookApp
 import kr.neptune.simplebook.core.AppUpdater
 import kr.neptune.simplebook.core.BookState
 import kr.neptune.simplebook.core.Covers
+import kr.neptune.simplebook.core.Fonts
 import kr.neptune.simplebook.core.Library
 import kr.neptune.simplebook.core.ShelfItem
 import kr.neptune.simplebook.core.SortMode
@@ -49,8 +50,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            store.roots.collect { roots ->
-                if (_path.value.isEmpty()) _items.value = roots
+            store.roots.collect { _ ->
+                // 최상위나 앱 폴더 안에 있을 때는 등록 목록이 곧 화면이다
+                val here = current
+                if (here == null || here.isVirtual) _items.value = shelfItemsOf(here)
             }
         }
         if (prefs.autoUpdate.value) {
@@ -85,13 +88,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refresh() = load(useCache = false)
 
+    /** 최상위(null) 또는 앱 폴더 안에 놓인 등록 항목들 */
+    private fun shelfItemsOf(folder: ShelfItem?): List<ShelfItem> {
+        val roots = store.roots.value
+        val parentId = folder?.id
+        return roots
+            .filter { it.parentId == parentId }
+            .map { item ->
+                // 앱 폴더는 안에 든 개수를 여기서 센다
+                if (item.isVirtual) item.copy(childCount = roots.count { it.parentId == item.id })
+                else item
+            }
+    }
+
     private fun load(useCache: Boolean) {
         loadJob?.cancel()
         val folder = current
-        if (folder == null) {
-            _items.value = store.roots.value
+        if (folder == null || folder.isVirtual) {
+            _items.value = shelfItemsOf(folder)
             _busy.value = false
-            if (!useCache) refreshRoots()
+            if (!useCache && folder == null) refreshRoots()
             return
         }
 
@@ -138,7 +154,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _notice.value = "폴더를 등록하지 못했습니다"
                 return@launch
             }
-            store.addRoot(root)
+            // 앱 폴더 안에서 등록하면 그 안에 들어간다
+            store.addRoot(root, currentVirtualId())
             _notice.value = "${root.name} 등록됨"
         }
     }
@@ -151,7 +168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Library.persist(ctx, uri)
                 val item = Library.rootFromFile(ctx, uri)
                 if (item == null) skipped++ else {
-                    store.addRoot(item)
+                    store.addRoot(item, currentVirtualId())
                     added++
                 }
             }
@@ -166,8 +183,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeRoot(item: ShelfItem) {
         store.removeRoot(item.id)
         Covers.forget(ctx, item)
-        Library.releasePermission(ctx, item)
-        _notice.value = "${item.title} 제거됨 (원본 파일은 그대로입니다)"
+        if (!item.isVirtual) Library.releasePermission(ctx, item)
+        _notice.value =
+            if (item.isVirtual) "${item.title} 폴더를 없앴습니다 (안에 있던 것은 최상위로 올라갑니다)"
+            else "${item.title} 제거됨 (원본 파일은 그대로입니다)"
+    }
+
+    // ------------------------------------------------------------ 앱 안 폴더
+
+    private fun currentVirtualId(): String? = current?.takeIf { it.isVirtual }?.id
+
+    /** 지금 있는 자리에 앱 폴더를 만든다 */
+    fun createFolder(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) {
+            _notice.value = "폴더 이름을 넣어 주세요"
+            return
+        }
+        store.createVirtualFolder(clean, currentVirtualId())
+        _notice.value = "${clean} 폴더를 만들었습니다"
+    }
+
+    fun renameFolder(item: ShelfItem, name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        store.renameRoot(item.id, clean)
+    }
+
+    /** 옮길 수 있는 앱 폴더 목록 (자기 자신 제외) */
+    fun folderTargets(item: ShelfItem): List<ShelfItem> =
+        store.roots.value.filter { it.isVirtual && it.id != item.id }
+            .sortedWith(compareBy(Library.NATURAL) { it.title })
+
+    fun moveTo(item: ShelfItem, folderId: String?) {
+        store.moveRoot(item.id, folderId)
+        _notice.value = if (folderId == null) "최상위로 옮겼습니다" else "옮겼습니다"
     }
 
     // ------------------------------------------------------------ 읽기
@@ -206,7 +256,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 마지막 쪽에서 "다음 화" 를 띄울 때 쓴다.
      */
     fun nextBook(item: ShelfItem): ShelfItem? {
-        val siblings = (if (item.parentId == null) store.roots.value
+        val siblings = (if (item.isRoot) store.roots.value.filter { it.parentId == item.parentId }
         else store.cached(item.parentId) ?: _items.value)
             .filterNot { it.isFolder }
             .sortedWith(compareBy(Library.NATURAL) { it.title })
@@ -255,6 +305,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (ok) "${source.title} 의 표지를 가져왔습니다" else "그 책의 표지를 뽑지 못했습니다"
         }
     }
+
+    // ------------------------------------------------------------ 글꼴
+
+    fun installFont(source: Uri) {
+        viewModelScope.launch {
+            val name = Fonts.install(ctx, source)
+            if (name == null) {
+                _notice.value = "글꼴로 읽지 못했습니다 (ttf / otf 만 됩니다)"
+                return@launch
+            }
+            prefs.setCustomFontName(name)
+            prefs.setUseCustomFont(true)
+            _notice.value = "$name 적용"
+        }
+    }
+
+    fun removeFont() {
+        Fonts.remove(ctx)
+        prefs.setUseCustomFont(false)
+        prefs.setCustomFontName("")
+        _notice.value = "시스템 글꼴로 돌아갑니다"
+    }
+
+    fun hasCustomFont(): Boolean = Fonts.exists(ctx)
 
     // ------------------------------------------------------------ 정렬
 

@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -48,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.R
 import kr.neptune.simplebook.core.AppUpdater
+import kr.neptune.simplebook.core.Fonts
 import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
@@ -77,6 +80,16 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val textSize by vm.prefs.textSize.collectAsStateWithLifecycle()
     val textBackground by vm.prefs.textBackground.collectAsStateWithLifecycle()
     val letterSpacing by vm.prefs.letterSpacing.collectAsStateWithLifecycle()
+    val lineSpacing by vm.prefs.lineSpacing.collectAsStateWithLifecycle()
+    val useCustomFont by vm.prefs.useCustomFont.collectAsStateWithLifecycle()
+    val customFontName by vm.prefs.customFontName.collectAsStateWithLifecycle()
+    val fontRevision by Fonts.revision.collectAsStateWithLifecycle()
+    val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
+    val hasFont = remember(fontRevision) { vm.hasCustomFont() }
+
+    val fontPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.installFont(it) } }
 
     var notesOpen by remember { mutableStateOf(false) }
     val changelog = remember {
@@ -107,6 +120,17 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 .padding(20.dp, 8.dp, 20.dp, 40.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+
+            SectionTitle("책장")
+            ToggleRow(
+                "종류별로 나눠 보기",
+                "폴더 / 만화·이미지 / PDF / 텍스트 를 구분선으로 갈라 놓습니다",
+                groupByKind,
+            ) { vm.prefs.setGroupByKind(it) }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
 
             SectionTitle("기본 보기 방식")
             Caption("책마다 따로 바꾼 설정이 있으면 그쪽이 우선합니다. 읽는 화면의 ⚙︎ 에서 바꿉니다.")
@@ -200,6 +224,42 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 valueRange = -0.05f..0.30f,
                 steps = 34,
             )
+
+            Text(
+                "줄 간격  ${"%.2f".format(lineSpacing)}배",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = lineSpacing,
+                onValueChange = { vm.prefs.setLineSpacing(it) },
+                valueRange = 1.0f..2.8f,
+                steps = 35,
+            )
+
+            Spacer(Modifier.height(4.dp))
+            Text("글꼴", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !useCustomFont,
+                    onClick = { vm.prefs.setUseCustomFont(false) },
+                    label = { Text("시스템 글꼴") },
+                )
+                FilterChip(
+                    selected = useCustomFont,
+                    onClick = { if (hasFont) vm.prefs.setUseCustomFont(true) },
+                    enabled = hasFont,
+                    label = { Text(if (hasFont) customFontName.ifBlank { "내 글꼴" } else "내 글꼴 (없음)") },
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { fontPicker.launch(arrayOf("*/*")) }) {
+                    Text(if (hasFont) "다른 글꼴 고르기" else "글꼴 파일 고르기")
+                }
+                if (hasFont) {
+                    OutlinedButton(onClick = { vm.removeFont() }) { Text("지우기") }
+                }
+            }
+            Caption("ttf / otf 파일을 고르면 앱 안에 복사해 둡니다. 원본을 지워도 글꼴은 남습니다.")
 
             Spacer(Modifier.height(4.dp))
             Text("종이색", style = MaterialTheme.typography.bodyMedium)

@@ -1,7 +1,8 @@
 package kr.neptune.simplebook.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -79,9 +80,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
@@ -92,6 +95,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -161,6 +165,9 @@ fun ReaderScreen(
     val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()
     val systemBrightness by vm.prefs.systemBrightness.collectAsStateWithLifecycle()
     val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
+    val lineSpacing by vm.prefs.lineSpacing.collectAsStateWithLifecycle()
+    val useCustomFont by vm.prefs.useCustomFont.collectAsStateWithLifecycle()
+    val readingFont = rememberReadingFont(useCustomFont)
 
     val direction = bookState.direction ?: defaultDirection
     val spreadMode = bookState.spread ?: defaultSpread
@@ -248,6 +255,8 @@ fun ReaderScreen(
                         onPages = { textStarts = it },
                         ink = ink,
                         letterSpacing = letterSpacing,
+                        lineSpacing = lineSpacing,
+                        fontFamily = readingFont,
                     )
                 } else {
                     ImageContent(
@@ -336,8 +345,10 @@ fun ReaderScreen(
             textSize = textSizeSp,
             textBackground = textBackground,
             letterSpacing = letterSpacing,
+            lineSpacing = lineSpacing,
             onTextBackground = { vm.prefs.setTextBackground(it) },
             onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
+            onLineSpacing = { vm.prefs.setLineSpacing(it) },
             orientation = orientation,
             systemBrightness = systemBrightness,
             brightness = brightness,
@@ -433,6 +444,7 @@ private fun SpreadPager(
 ) {
     if (spreads.isEmpty()) return
     val scope = rememberCoroutineScope()
+    val last = spreads.size - 1
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -442,7 +454,7 @@ private fun SpreadPager(
         scale = (scale * zoomChange).coerceIn(1f, 5f)
         offset = if (scale > 1f) offset + panChange else Offset.Zero
     }
-    // canPan 을 걸어야 확대 전 한 손가락 드래그가 페이저로 내려간다
+    // canPan 을 걸어야 확대 전 한 손가락 드래그가 아래로 내려간다
     val zoomModifier = if (zoomable) {
         Modifier.transformable(state = transform, canPan = { scale > 1f })
     } else {
@@ -494,87 +506,167 @@ private fun SpreadPager(
         return
     }
 
-    // ---- 책 넘김 / 효과 없음: 현재 펼침면만 그리고 스와이프·탭으로 교체한다
-    var index by remember(spreads.size) {
-        mutableIntStateOf(spreadIndexOf(spreads, startPage))
-    }
-    // 넘어가는 중인 두 장. null 이면 정지 상태
-    var flip by remember { mutableStateOf<Flip?>(null) }
-    val flipProgress = remember { Animatable(0f) }
+    // ---- 책 넘김 / 효과 없음
+    var index by remember(spreads.size) { mutableIntStateOf(spreadIndexOf(spreads, startPage)) }
 
-    LaunchedEffect(spreads) {
-        index = spreadIndexOf(spreads, pageNumber.intValue)
-    }
+    /**
+     * 넘어가는 정도. +1 은 다음 장으로 완전히 넘어간 상태, -1 은 이전 장이 완전히 펴진 상태.
+     * 손가락을 따라 실시간으로 움직이고 손을 떼면 가까운 쪽으로 붙는다.
+     */
+    var turn by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(spreads) { index = spreadIndexOf(spreads, pageNumber.intValue) }
     LaunchedEffect(index) {
         spreads.getOrNull(index)?.firstOrNull()?.let { pageNumber.intValue = it }
         scale = 1f
         offset = Offset.Zero
     }
 
-    fun goTo(target: Int, forward: Boolean) {
-        val from = index
-        index = target
-        if (effect != PageEffect.BOOK || from == target) return
-        scope.launch {
-            flip = Flip(
-                top = if (forward) from else target,
-                under = if (forward) target else from,
-                forward = forward,
-            )
-            flipProgress.snapTo(0f)
-            flipProgress.animateTo(1f, tween(durationMillis = 300))
-            flip = null
+    /**
+     * 넘김을 끝낸다.
+     *
+     * index 와 turn 을 한 스냅샷에서 같이 바꾼다. 따로 바꾸면 한 프레임 동안
+     * 엉뚱한 장이 보이면서 깜빡인다 — 이전 판의 깜빡임이 이것 때문이었다.
+     */
+    suspend fun commit(forward: Boolean) {
+        if (effect == PageEffect.BOOK) {
+            animate(
+                initialValue = turn,
+                targetValue = if (forward) 1f else -1f,
+                animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+            ) { value, _ -> turn = value }
+        }
+        Snapshot.withMutableSnapshot {
+            index = (index + if (forward) 1 else -1).coerceIn(0, last)
+            turn = 0f
         }
     }
 
+    suspend fun cancelTurn() {
+        if (turn != 0f) {
+            animate(
+                initialValue = turn,
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            ) { value, _ -> turn = value }
+        }
+        turn = 0f
+    }
+
     nav.turn = { delta ->
-        val target = index + delta
         when {
-            target >= spreads.size -> nav.onPastEnd()
-            target >= 0 -> goTo(target, delta > 0)
+            delta > 0 && index >= last -> nav.onPastEnd()
+            delta > 0 -> scope.launch { commit(true) }
+            delta < 0 && index > 0 -> scope.launch { commit(false) }
         }
     }
     nav.seekPage = { p ->
-        val target = spreadIndexOf(spreads, p)
-        goTo(target, target > index)
+        val target = spreadIndexOf(spreads, p).coerceIn(0, last)
+        Snapshot.withMutableSnapshot {
+            index = target
+            turn = 0f
+        }
+    }
+
+    // 책 넘김은 손가락을 따라오고, 효과 없음은 손을 떼는 순간 바뀐다
+    val dragModifier = if (effect == PageEffect.BOOK) {
+        Modifier.pointerInput(rtl, spreads.size, zoomed) {
+            if (zoomed) return@pointerInput
+            var pushedPastEnd = false
+            detectHorizontalDragGestures(
+                onDragStart = { pushedPastEnd = false },
+                onDragEnd = {
+                    scope.launch {
+                        when {
+                            turn > 0.28f -> commit(true)
+                            turn < -0.28f -> commit(false)
+                            else -> {
+                                cancelTurn()
+                                if (pushedPastEnd) nav.onPastEnd()
+                            }
+                        }
+                    }
+                },
+                onDragCancel = { scope.launch { cancelTurn() } },
+            ) { change, dragAmount ->
+                val width = size.width.toFloat().coerceAtLeast(1f)
+                // 우철은 오른쪽으로 끌어야 앞으로 간다
+                val forwardSign = if (rtl) 1f else -1f
+                var next = turn + (dragAmount / width) * forwardSign
+                if (index >= last) {
+                    if (next > 0f) pushedPastEnd = true
+                    next = next.coerceAtMost(0f)
+                }
+                if (index <= 0) next = next.coerceAtLeast(0f)
+                turn = next.coerceIn(-1f, 1f)
+                change.consume()
+            }
+        }
+    } else {
+        Modifier.swipeToTurn(!zoomed, rtl, nav)
     }
 
     Box(
         Modifier
             .fillMaxSize()
             .readerTaps(tapToTurn, rtl, nav, onMenu)
-            .swipeToTurn(!zoomed, rtl, nav)
+            .then(dragModifier)
             .then(zoomModifier)
     ) {
-        val turning = flip
-        if (turning == null) {
-            Spread(spreads[index.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
-        } else {
-            Spread(spreads[turning.under.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
+        val progress = turn
+        val underIndex = if (progress > 0f) (index + 1).coerceAtMost(last) else index
+        Spread(spreads[underIndex.coerceIn(0, last)], rtl, scale, offset, page)
 
-            // 앞으로 갈 때는 지나간 장이 들려 넘어가고, 뒤로 갈 때는 새 장이 펴진다
-            val lifted =
-                if (turning.forward) flipProgress.value else 1f - flipProgress.value
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        // 우철이면 책등이 오른쪽에 있다
-                        transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
-                        rotationY = (if (rtl) 1f else -1f) * 90f * lifted
-                        cameraDistance = 24f * density
-                    }
-            ) {
-                Spread(spreads[turning.top.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
-                // 들릴수록 그늘이 진다
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f * lifted)))
+        if (progress != 0f) {
+            // 앞으로 갈 때는 지나간 장이 들리고, 뒤로 갈 때는 새 장이 펴진다
+            val topIndex = if (progress > 0f) index else (index - 1).coerceAtLeast(0)
+            val lifted = if (progress > 0f) progress else 1f + progress
+            TurningPage(lifted, rtl) {
+                Spread(spreads[topIndex.coerceIn(0, last)], rtl, scale, offset, page)
             }
         }
     }
 }
 
-/** 넘어가는 중인 두 장 */
-private data class Flip(val top: Int, val under: Int, val forward: Boolean)
+/**
+ * 넘어가는 중인 한 장.
+ *
+ * 진짜 종이처럼 휘게 하려면 비트맵을 격자로 변형해야 하는데(drawBitmapMesh) 비용이 크다.
+ * 여기서는 3D 회전에 원통형 명암을 얹어 휘어 보이게 한다.
+ */
+@Composable
+private fun TurningPage(lifted: Float, rtl: Boolean, content: @Composable () -> Unit) {
+    val t = lifted.coerceIn(0f, 1f)
+    // 처음에 훅 들리고 끝에서 느려진다. 등속으로 돌리면 뻣뻣해 보인다
+    val eased = 1f - (1f - t) * (1f - t)
+    val sign = if (rtl) 1f else -1f
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                // 책등이 축이다. 우철이면 오른쪽
+                transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
+                rotationY = sign * 92f * eased
+                rotationZ = sign * -1.6f * t
+                cameraDistance = 14f * density
+            }
+    ) {
+        content()
+        // 책등 쪽이 가장 어둡고 가운데에 반사가 남는다
+        val shades = listOf(
+            Color.Black.copy(alpha = 0.50f * t),
+            Color.Black.copy(alpha = 0.06f * t),
+            Color.White.copy(alpha = 0.12f * t),
+            Color.Black.copy(alpha = 0.26f * t),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Brush.horizontalGradient(if (rtl) shades.reversed() else shades))
+        )
+    }
+}
 
 /** 두 손가락으로 키우고 줄인다. 확대 중에만 한 손가락 이동을 가져간다 */
 @OptIn(ExperimentalFoundationApi::class)
@@ -800,12 +892,15 @@ private fun TextContent(
     onPages: (List<Int>) -> Unit,
     ink: Color,
     letterSpacing: Float,
+    lineSpacing: Float,
+    fontFamily: FontFamily,
 ) {
     val density = LocalDensity.current
     val style = TextStyle(
         fontSize = fontSizeSp.sp,
-        lineHeight = (fontSizeSp * 1.75f).sp,
+        lineHeight = (fontSizeSp * lineSpacing).sp,
         letterSpacing = letterSpacing.em,
+        fontFamily = fontFamily,
         color = ink,
     )
 
@@ -1201,8 +1296,10 @@ private fun ReaderSettings(
     textSize: Float,
     textBackground: TextBackground,
     letterSpacing: Float,
+    lineSpacing: Float,
     onTextBackground: (TextBackground) -> Unit,
     onLetterSpacing: (Float) -> Unit,
+    onLineSpacing: (Float) -> Unit,
     orientation: OrientationMode,
     systemBrightness: Boolean,
     brightness: Float,
@@ -1238,7 +1335,7 @@ private fun ReaderSettings(
                     FilterChip(
                         selected = !scrolling,
                         onClick = { if (scrolling) onDirection(ReadDirection.LTR) },
-                        label = { Text("책 넘김") },
+                        label = { Text("책") },
                     )
                 }
                 if (!scrolling) {
@@ -1323,6 +1420,17 @@ private fun ReaderSettings(
                     onValueChange = onLetterSpacing,
                     valueRange = -0.05f..0.30f,
                     steps = 34,
+                )
+
+                Text(
+                    "줄 간격  ${"%.2f".format(lineSpacing)}배",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Slider(
+                    value = lineSpacing,
+                    onValueChange = onLineSpacing,
+                    valueRange = 1.0f..2.8f,
+                    steps = 35,
                 )
 
                 Spacer(Modifier.height(4.dp))

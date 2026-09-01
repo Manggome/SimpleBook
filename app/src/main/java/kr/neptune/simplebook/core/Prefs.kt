@@ -120,6 +120,36 @@ class Prefs(context: Context) {
         _letterSpacing.value = clamped
     }
 
+    /** 줄 간격(세로 자간). 글자 크기에 대한 배수 */
+    private val _lineSpacing = MutableStateFlow(sp.getFloat("line_spacing", 1.75f))
+    val lineSpacing: StateFlow<Float> = _lineSpacing.asStateFlow()
+
+    fun setLineSpacing(v: Float) {
+        val clamped = v.coerceIn(1.0f, 2.8f)
+        sp.edit().putFloat("line_spacing", clamped).apply()
+        _lineSpacing.value = clamped
+    }
+
+    /** 내려받아 둔 ttf 를 쓸지, 시스템 폰트를 쓸지 */
+    private val _useCustomFont = MutableStateFlow(sp.getBoolean("use_custom_font", false))
+    val useCustomFont: StateFlow<Boolean> = _useCustomFont.asStateFlow()
+
+    private val _customFontName = MutableStateFlow(sp.getString("custom_font_name", "") ?: "")
+    val customFontName: StateFlow<String> = _customFontName.asStateFlow()
+
+    fun setUseCustomFont(v: Boolean) = put("use_custom_font", v, _useCustomFont)
+
+    fun setCustomFontName(v: String) {
+        sp.edit().putString("custom_font_name", v).apply()
+        _customFontName.value = v
+    }
+
+    /** 책장을 종류(폴더 / 만화·이미지 / PDF / 텍스트)별로 나눠 보기 */
+    private val _groupByKind = MutableStateFlow(sp.getBoolean("group_by_kind", false))
+    val groupByKind: StateFlow<Boolean> = _groupByKind.asStateFlow()
+
+    fun setGroupByKind(v: Boolean) = put("group_by_kind", v, _groupByKind)
+
     // ---------------------------------------------------------------- 업데이트
 
     private val _autoUpdate = MutableStateFlow(sp.getBoolean("auto_update", true))

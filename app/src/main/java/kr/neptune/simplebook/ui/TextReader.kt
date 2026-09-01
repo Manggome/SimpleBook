@@ -16,11 +16,16 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kr.neptune.simplebook.core.Fonts
 import kotlinx.coroutines.withContext
 
 private val HighlightColor = Color(0x99C89A63)
@@ -191,5 +196,21 @@ private fun slice(text: String, from: Int, to: Int, highlight: String?): Annotat
             }
             cursor = hit + highlight.length
         }
+    }
+}
+
+/**
+ * 본문에 쓸 글꼴. 사용자가 넣어 둔 ttf 가 있으면 그것을, 없거나 못 읽으면 시스템 글꼴을 쓴다.
+ * 글꼴이 바뀌면 [Fonts.revision] 이 올라가 여기서 다시 만든다.
+ */
+@Composable
+fun rememberReadingFont(useCustom: Boolean): FontFamily {
+    val context = LocalContext.current
+    val revision by Fonts.revision.collectAsStateWithLifecycle()
+    return remember(useCustom, revision) {
+        if (!useCustom) return@remember FontFamily.Default
+        val file = Fonts.file(context)
+        if (!file.exists() || file.length() <= 0) return@remember FontFamily.Default
+        runCatching { FontFamily(Font(file)) }.getOrDefault(FontFamily.Default)
     }
 }

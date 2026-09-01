@@ -46,17 +46,56 @@ class LibraryStore(context: Context) {
 
     // ---------------------------------------------------------------- 등록 항목
 
-    fun addRoot(item: ShelfItem) {
-        val next = _roots.value.filterNot { it.id == item.id } + item.copy(isRoot = true, parentId = null)
+    fun addRoot(item: ShelfItem, parentId: String? = null) {
+        val next = _roots.value.filterNot { it.id == item.id } +
+            item.copy(isRoot = true, parentId = parentId)
         _roots.value = next
         saveLibrary()
     }
 
+    /**
+     * 항목을 뺀다. 앱 안에서 만든 폴더를 빼면 그 안에 있던 것들은 사라지지 않고
+     * 최상위로 올라온다 — 등록을 다시 하게 만들 이유가 없다.
+     */
     fun removeRoot(id: String) {
-        _roots.value = _roots.value.filterNot { it.id == id }
+        _roots.value = _roots.value
+            .filterNot { it.id == id }
+            .map { if (it.parentId == id) it.copy(parentId = null) else it }
         scanCache.remove(id)
         saveLibrary()
         saveCache()
+    }
+
+    /** 앱 안에서만 존재하는 폴더를 만든다. 폰의 파일은 건드리지 않는다 */
+    fun createVirtualFolder(name: String, parentId: String? = null): ShelfItem {
+        val id = "virtual:" + java.util.UUID.randomUUID().toString()
+        val folder = ShelfItem(
+            id = id,
+            uri = id,
+            treeUri = null,
+            docId = null,
+            parentId = parentId,
+            name = name,
+            isFolder = true,
+            kind = null,
+            isRoot = true,
+            isVirtual = true,
+        )
+        _roots.value = _roots.value + folder
+        saveLibrary()
+        return folder
+    }
+
+    fun renameRoot(id: String, name: String) {
+        _roots.value = _roots.value.map { if (it.id == id) it.copy(name = name) else it }
+        saveLibrary()
+    }
+
+    /** 등록 항목을 앱 폴더 사이로 옮긴다. [parentId] 가 null 이면 최상위로 */
+    fun moveRoot(id: String, parentId: String?) {
+        if (id == parentId) return
+        _roots.value = _roots.value.map { if (it.id == id) it.copy(parentId = parentId) else it }
+        saveLibrary()
     }
 
     /** 스캔으로 갱신된 정보(개수 등)를 등록 항목에 반영한다 */
@@ -64,7 +103,7 @@ class LibraryStore(context: Context) {
         val current = _roots.value
         val idx = current.indexOfFirst { it.id == item.id }
         if (idx < 0) return
-        val merged = item.copy(isRoot = true, parentId = null)
+        val merged = item.copy(isRoot = true, parentId = current[idx].parentId)
         if (current[idx] == merged) return
         _roots.value = current.toMutableList().also { it[idx] = merged }
         saveLibrary()
@@ -210,6 +249,7 @@ class LibraryStore(context: Context) {
             put("childCount", i.childCount)
             put("folderHasImages", i.folderHasImages)
             put("isRoot", i.isRoot)
+            put("isVirtual", i.isVirtual)
         }
 
         fun itemFromJson(o: JSONObject): ShelfItem = ShelfItem(
@@ -227,6 +267,7 @@ class LibraryStore(context: Context) {
             childCount = o.optInt("childCount", 0),
             folderHasImages = o.optBoolean("folderHasImages", false),
             isRoot = o.optBoolean("isRoot", false),
+            isVirtual = o.optBoolean("isVirtual", false),
         )
     }
 }
