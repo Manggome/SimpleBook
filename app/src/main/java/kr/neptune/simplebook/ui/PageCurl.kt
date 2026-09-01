@@ -18,15 +18,17 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.*
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * 넘어가는 종이 한 장. 원통으로 휘어 들린다.
+ * 넘어가는 종이 한 장.
  *
- * 페이지를 통째로 3D 회전시키면 판때기가 도는 것처럼 보인다. 실제 종이는 책등 쪽은
- * 거의 평평하고 바깥으로 갈수록 많이 휜다. 그래서 페이지를 세로로 잘라, 조각마다
- * 원통 위의 제 위치로 옮겨 그린다.
+ * 종이를 책등 축으로 돌리면서(swing) 동시에 부드럽게 휘게 한다(bend). 휘는 정도는
+ * 넘김 중간에서 가장 크고 처음과 끝에서는 0 이라, 평평하게 놓였다가 들렸다가 다시
+ * 평평해진다.
  *
  * 조각마다 화면을 다시 그리면 감당이 안 되므로, 페이지를 [GraphicsLayer] 에 한 번
  * 기록해 두고 그 기록을 조각 수만큼 다시 재생한다. 재생은 이미 만들어 둔 그리기
@@ -60,8 +62,14 @@ fun CurlingPage(
     }
 }
 
-/** 세로로 자르는 조각 수. 늘릴수록 매끈하지만 재생 비용이 붙는다 */
-private const val STRIPS = 16
+/** 세로로 자르는 조각 수. 적으면 경계가 각져 보인다 */
+private const val STRIPS = 32
+
+/** 다 넘어갔을 때 책등 축으로 돌아간 각 */
+private const val SWING_MAX = 1.75f
+
+/** 넘김 중간에서 종이가 휘는 정도 */
+private const val BEND_MAX = 0.80f
 
 private fun DrawScope.drawCurl(layer: GraphicsLayer, lifted: Float, rtl: Boolean) {
     val t = lifted.coerceIn(0f, 1f)
@@ -75,57 +83,73 @@ private fun DrawScope.drawCurl(layer: GraphicsLayer, lifted: Float, rtl: Boolean
         return
     }
 
-    // 종이 전체가 휘는 각. 반 바퀴(π)까지 말리면 책등 쪽에 둥글게 감긴 모양이 된다
-    val bend = (PI.toFloat() * t).coerceAtLeast(0.0005f)
-    val radius = width / bend
+    val swing = SWING_MAX * t
+    // 처음과 끝에서는 평평하고 중간에서 가장 많이 휜다
+    val bend = BEND_MAX * sin(PI.toFloat() * t)
+    val flat = bend < 0.002f
+    val curvature = bend / width
     val camera = width * 2.6f
 
-    // 다 말린 뒤에는 조용히 사라진다. 안 그러면 책등 쪽에 뭉친 채로 툭 끊긴다
-    layer.alpha = if (t > 0.80f) ((1f - t) / 0.20f).coerceIn(0f, 1f) else 1f
+    // 거의 다 넘어가면 조용히 사라진다. 안 그러면 책등 쪽에서 툭 끊긴다
+    layer.alpha = if (t > 0.85f) ((1f - t) / 0.15f).coerceIn(0f, 1f) else 1f
 
     val spine = if (rtl) width else 0f
 
-    /** 원본 x 가 화면에서 어디에 놓이는지, 그리고 그 자리의 원근 축소율 */
+    /** 원본 x 가 화면 어디에 놓이는지와, 앞으로 들린 만큼의 확대율 */
     fun project(sourceX: Float): Pair<Float, Float> {
-        // 책등에서부터 잰 종이 길이
         val along = if (rtl) width - sourceX else sourceX
-        val theta = along / radius
-        val flat = radius * sin(theta)
-        val depth = radius * (1f - cos(theta))
-        val shrink = camera / (camera + depth)
-        val x = spine + (if (rtl) -flat else flat) * shrink
-        return x to shrink
+        val theta = swing + if (flat) 0f else curvature * along
+        // 책등에서부터의 가로 거리와, 화면 앞쪽으로 들린 높이
+        val across: Float
+        val height3d: Float
+        if (flat) {
+            across = along * cos(swing)
+            height3d = along * sin(swing)
+        } else {
+            across = (sin(theta) - sin(swing)) / curvature
+            height3d = (cos(swing) - cos(theta)) / curvature
+        }
+        // 앞으로 들린 쪽이 커 보여야 종이가 이쪽으로 넘어오는 것처럼 보인다.
+        // 반대로 잡으면 책 뒤로 말려 들어가는 것처럼 보인다.
+        val near = camera / (camera - height3d).coerceAtLeast(camera * 0.35f)
+        val screen = spine + (if (rtl) -across else across) * near
+        return screen to near
     }
 
     for (i in 0 until STRIPS) {
         val x0 = width * i / STRIPS
         val x1 = width * (i + 1) / STRIPS
-        val (screen0, shrink0) = project(x0)
-        val (screen1, shrink1) = project(x1)
+        val span = x1 - x0
+        if (span <= 0f) continue
 
-        val sourceSpan = x1 - x0
-        if (sourceSpan <= 0f) continue
-        val scaleX = (screen1 - screen0) / sourceSpan
-        val scaleY = (shrink0 + shrink1) * 0.5f
+        val (screen0, near0) = project(x0)
+        val (screen1, near1) = project(x1)
+
+        val scaleX = (screen1 - screen0) / span
+        val scaleY = (near0 + near1) * 0.5f
         val shiftX = screen0 - scaleX * x0
 
-        // 조각 가운데의 기울기로 밝기를 정한다. 책등 쪽이 우리를 보고 있어 가장 밝다
+        // 조각 사이에 1px 틈이 생기면 자글자글해 보인다. 살짝 겹쳐서 덮는다
+        val bleed = min(span * 0.5f, 0.9f / abs(scaleX).coerceAtLeast(0.05f))
+        val clipLeft = (x0 - bleed).coerceAtLeast(0f)
+        val clipRight = (x1 + bleed).coerceAtMost(width)
+
         val along = if (rtl) width - (x0 + x1) * 0.5f else (x0 + x1) * 0.5f
-        val facing = cos(along / radius)
-        val shade = (((1f - facing) * 0.5f) * 0.62f * (t * 3f).coerceAtMost(1f))
-            .coerceIn(0f, 0.62f)
+        val facing = cos(swing + if (flat) 0f else curvature * along)
+        val shade = (((1f - facing) * 0.5f) * 0.55f * (t * 4f).coerceAtMost(1f))
+            .coerceIn(0f, 0.55f)
 
         withTransform({
             translate(left = shiftX, top = 0f)
             scale(scaleX = scaleX, scaleY = scaleY, pivot = Offset(0f, height * 0.5f))
         }) {
-            clipRect(left = x0, top = 0f, right = x1, bottom = height) {
+            clipRect(left = clipLeft, top = 0f, right = clipRight, bottom = height) {
                 drawLayer(layer)
                 if (shade > 0.001f) {
                     drawRect(
                         color = Color.Black.copy(alpha = shade),
-                        topLeft = Offset(x0, 0f),
-                        size = Size(sourceSpan, height),
+                        topLeft = Offset(clipLeft, 0f),
+                        size = Size(clipRight - clipLeft, height),
                     )
                 }
             }

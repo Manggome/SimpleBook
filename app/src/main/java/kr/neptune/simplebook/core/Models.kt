@@ -29,6 +29,38 @@ enum class SpreadMode(val label: String) {
 }
 
 /**
+ * 기본 보기 방식을 따로 잡는 갈래.
+ *
+ * 만화는 우철에 2쪽이 자연스럽고 소설은 좌철에 1쪽이 자연스럽다. 하나로 묶으면
+ * 한쪽을 맞추면 다른 쪽이 틀어진다.
+ */
+enum class FormatGroup(
+    val key: String,
+    val label: String,
+    val defaultDirection: ReadDirection,
+    val defaultSpread: SpreadMode,
+) {
+    COMIC("comic", "만화 · 이미지", ReadDirection.RTL, SpreadMode.AUTO),
+    PDF("pdf", "PDF", ReadDirection.LTR, SpreadMode.AUTO),
+    TEXT("text", "텍스트", ReadDirection.LTR, SpreadMode.AUTO);
+
+    companion object {
+        fun of(kind: BookKind?): FormatGroup = when (kind) {
+            BookKind.PDF -> PDF
+            BookKind.TXT -> TEXT
+            else -> COMIC
+        }
+    }
+}
+
+/** 앱 전체 테마 */
+enum class ThemeMode(val label: String) {
+    SYSTEM("시스템 설정"),
+    DARK("다크"),
+    LIGHT("화이트"),
+}
+
+/**
  * TXT 를 읽을 때의 종이색. 이미지 책은 항상 검은 바탕이라 여기 해당하지 않는다.
  *
  * @param paper 배경, [ink] 글자색 (ARGB)

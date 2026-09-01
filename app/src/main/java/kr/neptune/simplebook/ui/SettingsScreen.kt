@@ -50,11 +50,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.R
 import kr.neptune.simplebook.core.AppUpdater
+import kr.neptune.simplebook.core.FormatGroup
 import kr.neptune.simplebook.core.Fonts
 import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
 import kr.neptune.simplebook.core.SpreadMode
+import kr.neptune.simplebook.core.ThemeMode
 import kr.neptune.simplebook.core.TextBackground
 import kotlin.math.roundToInt
 
@@ -65,8 +67,11 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val direction by vm.prefs.direction.collectAsStateWithLifecycle()
-    val spread by vm.prefs.spread.collectAsStateWithLifecycle()
+    val directions by vm.prefs.directions.collectAsStateWithLifecycle()
+    val spreads by vm.prefs.spreads.collectAsStateWithLifecycle()
+    var group by remember { mutableStateOf(FormatGroup.COMIC) }
+    val direction = directions[group] ?: group.defaultDirection
+    val spread = spreads[group] ?: group.defaultSpread
     val threshold by vm.prefs.spreadThreshold.collectAsStateWithLifecycle()
     val coverAlone by vm.prefs.coverAlone.collectAsStateWithLifecycle()
     val tapToTurn by vm.prefs.tapToTurn.collectAsStateWithLifecycle()
@@ -85,6 +90,13 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val customFontName by vm.prefs.customFontName.collectAsStateWithLifecycle()
     val fontRevision by Fonts.revision.collectAsStateWithLifecycle()
     val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
+    val theme by vm.prefs.theme.collectAsStateWithLifecycle()
+    val autoTurn by vm.prefs.autoTurn.collectAsStateWithLifecycle()
+    val autoTurnSeconds by vm.prefs.autoTurnSeconds.collectAsStateWithLifecycle()
+    val overlayClock by vm.prefs.overlayClock.collectAsStateWithLifecycle()
+    val overlayBattery by vm.prefs.overlayBattery.collectAsStateWithLifecycle()
+    val overlayTitle by vm.prefs.overlayTitle.collectAsStateWithLifecycle()
+    val overlayPage by vm.prefs.overlayPage.collectAsStateWithLifecycle()
     val hasFont = remember(fontRevision) { vm.hasCustomFont() }
 
     val fontPicker = rememberLauncherForActivityResult(
@@ -133,15 +145,29 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(8.dp))
 
             SectionTitle("기본 보기 방식")
-            Caption("책마다 따로 바꾼 설정이 있으면 그쪽이 우선합니다. 읽는 화면의 ⚙︎ 에서 바꿉니다.")
+            Caption(
+                "형식마다 따로 잡습니다. 만화는 우철에 2쪽, 소설은 좌철에 1쪽처럼 성격이 " +
+                    "달라서입니다. 책 하나만 다르게 두고 싶으면 읽는 화면의 ⚙︎ 에서 바꾸세요."
+            )
 
             Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FormatGroup.entries.forEach { g ->
+                    FilterChip(
+                        selected = g == group,
+                        onClick = { group = g },
+                        label = { Text(g.label) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
             Text("넘기는 방향", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ReadDirection.entries.forEach { d ->
                     FilterChip(
                         selected = d == direction,
-                        onClick = { vm.prefs.setDirection(d) },
+                        onClick = { vm.prefs.setDirection(group, d) },
                         label = { Text(d.label) },
                     )
                 }
@@ -154,7 +180,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 SpreadMode.entries.forEach { s ->
                     FilterChip(
                         selected = s == spread,
-                        onClick = { vm.prefs.setSpread(s) },
+                        onClick = { vm.prefs.setSpread(group, s) },
                         label = { Text(s.label) },
                     )
                 }
@@ -285,8 +311,55 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            SectionTitle("자동 넘기기")
+            ToggleRow(
+                "자동으로 넘기기",
+                "넘어가는 중에 화면을 누르면 멈춥니다. 계속할지 끌지 고를 수 있습니다",
+                autoTurn,
+            ) { vm.prefs.setAutoTurn(it) }
+            if (autoTurn) {
+                Text(
+                    "${autoTurnSeconds.toInt()}초에 한 번",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Slider(
+                    value = autoTurnSeconds,
+                    onValueChange = { vm.prefs.setAutoTurnSeconds(it) },
+                    valueRange = 2f..60f,
+                    steps = 57,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            SectionTitle("읽을 때 화면 위에 표시")
+            Caption("상태바를 숨긴 채로도 필요한 것만 얇게 띄웁니다. 메뉴를 열면 잠시 사라집니다.")
+            ToggleRow("시계", null, overlayClock) { vm.prefs.setOverlayClock(it) }
+            ToggleRow("배터리 %", null, overlayBattery) { vm.prefs.setOverlayBattery(it) }
+            ToggleRow("읽고 있는 책 이름", null, overlayTitle) { vm.prefs.setOverlayTitle(it) }
+            ToggleRow("현재 쪽 / 전체 쪽", null, overlayPage) { vm.prefs.setOverlayPage(it) }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
             SectionTitle("화면")
 
+            Text("테마", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { t ->
+                    FilterChip(
+                        selected = t == theme,
+                        onClick = { vm.prefs.setTheme(t) },
+                        label = { Text(t.label) },
+                    )
+                }
+            }
+            Caption("읽는 화면은 테마와 별개입니다. 만화는 검은 바탕, 소설은 고른 종이색.")
+
+            Spacer(Modifier.height(8.dp))
             Text("회전", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OrientationMode.entries.forEach { o ->

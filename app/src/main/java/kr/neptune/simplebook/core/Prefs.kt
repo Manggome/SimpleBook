@@ -27,11 +27,38 @@ class Prefs(context: Context) {
 
     // ---------------------------------------------------------------- 보기
 
-    private val _direction = MutableStateFlow(enum("direction", ReadDirection.RTL))
-    val direction: StateFlow<ReadDirection> = _direction.asStateFlow()
+    /**
+      * 형식별 기본 보기 방식. 예전에 쓰던 단일 설정이 있으면 그 값을 출발점으로 삼는다.
+      */
+    private val _directions = MutableStateFlow(
+        FormatGroup.entries.associateWith { loadDirection(it) }
+    )
+    val directions: StateFlow<Map<FormatGroup, ReadDirection>> = _directions.asStateFlow()
 
-    private val _spread = MutableStateFlow(enum("spread", SpreadMode.AUTO))
-    val spread: StateFlow<SpreadMode> = _spread.asStateFlow()
+    private val _spreads = MutableStateFlow(
+        FormatGroup.entries.associateWith { loadSpread(it) }
+    )
+    val spreads: StateFlow<Map<FormatGroup, SpreadMode>> = _spreads.asStateFlow()
+
+    fun direction(group: FormatGroup): ReadDirection =
+        _directions.value[group] ?: group.defaultDirection
+
+    fun spread(group: FormatGroup): SpreadMode =
+        _spreads.value[group] ?: group.defaultSpread
+
+    private fun loadDirection(group: FormatGroup): ReadDirection {
+        val saved = sp.getString("direction_" + group.key, null)
+            ?: sp.getString("direction", null)
+            ?: return group.defaultDirection
+        return runCatching { ReadDirection.valueOf(saved) }.getOrDefault(group.defaultDirection)
+    }
+
+    private fun loadSpread(group: FormatGroup): SpreadMode {
+        val saved = sp.getString("spread_" + group.key, null)
+            ?: sp.getString("spread", null)
+            ?: return group.defaultSpread
+        return runCatching { SpreadMode.valueOf(saved) }.getOrDefault(group.defaultSpread)
+    }
 
     /**
      * 자동 판정 기준. 화면 가로÷세로가 이 값 이상이면 2쪽을 편다.
@@ -63,8 +90,15 @@ class Prefs(context: Context) {
     private val _immersive = MutableStateFlow(sp.getBoolean("immersive", true))
     val immersive: StateFlow<Boolean> = _immersive.asStateFlow()
 
-    fun setDirection(v: ReadDirection) = put("direction", v, _direction)
-    fun setSpread(v: SpreadMode) = put("spread", v, _spread)
+    fun setDirection(group: FormatGroup, v: ReadDirection) {
+        sp.edit().putString("direction_" + group.key, v.name).apply()
+        _directions.value = _directions.value + (group to v)
+    }
+
+    fun setSpread(group: FormatGroup, v: SpreadMode) {
+        sp.edit().putString("spread_" + group.key, v.name).apply()
+        _spreads.value = _spreads.value + (group to v)
+    }
     fun setSpreadThreshold(v: Float) {
         sp.edit().putFloat("spread_threshold", v).apply()
         _spreadThreshold.value = v
@@ -74,7 +108,48 @@ class Prefs(context: Context) {
     fun setKeepScreenOn(v: Boolean) = put("keep_screen_on", v, _keepScreenOn)
     fun setImmersive(v: Boolean) = put("immersive", v, _immersive)
 
+    // ---------------------------------------------------------------- 자동 넘기기
+
+    private val _autoTurn = MutableStateFlow(sp.getBoolean("auto_turn", false))
+    val autoTurn: StateFlow<Boolean> = _autoTurn.asStateFlow()
+
+    /** 몇 초에 한 번 넘길지 */
+    private val _autoTurnSeconds = MutableStateFlow(sp.getFloat("auto_turn_seconds", 8f))
+    val autoTurnSeconds: StateFlow<Float> = _autoTurnSeconds.asStateFlow()
+
+    fun setAutoTurn(v: Boolean) = put("auto_turn", v, _autoTurn)
+
+    fun setAutoTurnSeconds(v: Float) {
+        val clamped = v.coerceIn(2f, 60f)
+        sp.edit().putFloat("auto_turn_seconds", clamped).apply()
+        _autoTurnSeconds.value = clamped
+    }
+
+    // ---------------------------------------------------------------- 읽을 때 화면 위 표시
+
+    private val _overlayClock = MutableStateFlow(sp.getBoolean("overlay_clock", false))
+    val overlayClock: StateFlow<Boolean> = _overlayClock.asStateFlow()
+
+    private val _overlayBattery = MutableStateFlow(sp.getBoolean("overlay_battery", false))
+    val overlayBattery: StateFlow<Boolean> = _overlayBattery.asStateFlow()
+
+    private val _overlayTitle = MutableStateFlow(sp.getBoolean("overlay_title", false))
+    val overlayTitle: StateFlow<Boolean> = _overlayTitle.asStateFlow()
+
+    private val _overlayPage = MutableStateFlow(sp.getBoolean("overlay_page", false))
+    val overlayPage: StateFlow<Boolean> = _overlayPage.asStateFlow()
+
+    fun setOverlayClock(v: Boolean) = put("overlay_clock", v, _overlayClock)
+    fun setOverlayBattery(v: Boolean) = put("overlay_battery", v, _overlayBattery)
+    fun setOverlayTitle(v: Boolean) = put("overlay_title", v, _overlayTitle)
+    fun setOverlayPage(v: Boolean) = put("overlay_page", v, _overlayPage)
+
     // ---------------------------------------------------------------- 화면
+
+    private val _theme = MutableStateFlow(enum("theme", ThemeMode.SYSTEM))
+    val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
+
+    fun setTheme(v: ThemeMode) = put("theme", v, _theme)
 
     private val _orientation = MutableStateFlow(enum("orientation", OrientationMode.AUTO))
     val orientation: StateFlow<OrientationMode> = _orientation.asStateFlow()

@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -27,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.core.AppUpdater
 import kr.neptune.simplebook.core.OrientationMode
+import kr.neptune.simplebook.core.ThemeMode
 import kr.neptune.simplebook.ui.ReaderScreen
 import kr.neptune.simplebook.ui.SettingsScreen
 import kr.neptune.simplebook.ui.ShelfScreen
@@ -40,8 +42,15 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
-            SimpleBookTheme {
-                val vm: MainViewModel = viewModel()
+            val vm: MainViewModel = viewModel()
+            val theme by vm.prefs.theme.collectAsStateWithLifecycle()
+            val dark = when (theme) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.DARK -> true
+                ThemeMode.LIGHT -> false
+            }
+
+            SimpleBookTheme(dark = dark) {
                 val reading by vm.reading.collectAsStateWithLifecycle()
                 val immersive by vm.prefs.immersive.collectAsStateWithLifecycle()
                 val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()

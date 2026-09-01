@@ -15,13 +15,14 @@ private val Dark = darkColorScheme(
     primary = Accent,
     onPrimary = Color(0xFF231A10),
     secondary = Color(0xFFB9A48A),
-    background = Color(0xFF12100E),
-    onBackground = Color(0xFFEDE6DC),
-    surface = Color(0xFF1B1815),
-    onSurface = Color(0xFFEDE6DC),
-    surfaceVariant = Color(0xFF2A2521),
-    onSurfaceVariant = Color(0xFFC6BCB0),
-    outline = Color(0xFF574F47),
+    background = Color(0xFF111113),
+    onBackground = Color(0xFFE9E6E2),
+    // 표면은 중성 회색에 가깝게 둔다. 갈색을 섞으면 패널이 누렇게 보인다
+    surface = Color(0xFF191A1C),
+    onSurface = Color(0xFFE9E6E2),
+    surfaceVariant = Color(0xFF26282B),
+    onSurfaceVariant = Color(0xFFBCBAB6),
+    outline = Color(0xFF4E5054),
 )
 
 private val Light = lightColorScheme(

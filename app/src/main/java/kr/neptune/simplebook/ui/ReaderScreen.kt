@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -109,6 +110,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.core.BookState
+import kr.neptune.simplebook.core.FormatGroup
 import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
@@ -137,6 +139,13 @@ class ReaderNav {
 
     /** 마지막 쪽에서 한 번 더 넘기려 했다 */
     var onPastEnd: () -> Unit = {}
+
+    /**
+     * true 를 돌려주면 그 탭은 삼킨다.
+     * 자동으로 넘어가는 중에 화면을 누르면 "멈추려고 눌렀는데 한 장 넘어가는" 일이
+     * 없도록, 그 탭은 멈추는 데만 쓴다.
+     */
+    var interceptTap: () -> Boolean = { false }
 }
 
 @Composable
@@ -155,8 +164,11 @@ fun ReaderScreen(
     val states by vm.store.states.collectAsStateWithLifecycle()
     val bookState = states[item.id] ?: BookState()
 
-    val defaultDirection by vm.prefs.direction.collectAsStateWithLifecycle()
-    val defaultSpread by vm.prefs.spread.collectAsStateWithLifecycle()
+    val group = remember(item.id) { FormatGroup.of(item.kind) }
+    val directions by vm.prefs.directions.collectAsStateWithLifecycle()
+    val spreads by vm.prefs.spreads.collectAsStateWithLifecycle()
+    val defaultDirection = directions[group] ?: group.defaultDirection
+    val defaultSpread = spreads[group] ?: group.defaultSpread
     val threshold by vm.prefs.spreadThreshold.collectAsStateWithLifecycle()
     val coverAlone by vm.prefs.coverAlone.collectAsStateWithLifecycle()
     val tapToTurn by vm.prefs.tapToTurn.collectAsStateWithLifecycle()
@@ -170,6 +182,12 @@ fun ReaderScreen(
     val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
     val lineSpacing by vm.prefs.lineSpacing.collectAsStateWithLifecycle()
     val useCustomFont by vm.prefs.useCustomFont.collectAsStateWithLifecycle()
+    val autoTurn by vm.prefs.autoTurn.collectAsStateWithLifecycle()
+    val autoTurnSeconds by vm.prefs.autoTurnSeconds.collectAsStateWithLifecycle()
+    val overlayClock by vm.prefs.overlayClock.collectAsStateWithLifecycle()
+    val overlayBattery by vm.prefs.overlayBattery.collectAsStateWithLifecycle()
+    val overlayTitle by vm.prefs.overlayTitle.collectAsStateWithLifecycle()
+    val overlayPage by vm.prefs.overlayPage.collectAsStateWithLifecycle()
     val readingFont = rememberReadingFont(useCustomFont)
 
     val direction = bookState.direction ?: defaultDirection
@@ -185,6 +203,7 @@ fun ReaderScreen(
     var chromeVisible by remember(item.id) { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
     var settingsExpanded by remember { mutableStateOf(false) }
+    var autoPaused by remember(item.id) { mutableStateOf(false) }
     var endPanelVisible by remember(item.id) { mutableStateOf(false) }
     var searchVisible by remember(item.id) { mutableStateOf(false) }
     var highlight by remember(item.id) { mutableStateOf<String?>(null) }
@@ -203,6 +222,27 @@ fun ReaderScreen(
         if (totalPages <= 0) return@LaunchedEffect
         delay(500)
         vm.saveProgress(item.id, pageNumber.intValue, totalPages)
+    }
+
+    // 뭔가 떠 있는 동안에는 저절로 넘어가면 곤란하다
+    val autoRunning = autoTurn && !autoPaused && !settingsVisible &&
+        !searchVisible && !endPanelVisible && !jumpVisible && !chromeVisible
+
+    nav.interceptTap = {
+        if (autoRunning) {
+            autoPaused = true
+            true
+        } else {
+            false
+        }
+    }
+
+    LaunchedEffect(autoRunning, autoTurnSeconds) {
+        if (!autoRunning) return@LaunchedEffect
+        while (true) {
+            delay((autoTurnSeconds * 1000f).toLong())
+            nav.turn(1)
+        }
     }
 
     val onMenu = { chromeVisible = !chromeVisible }
@@ -288,6 +328,32 @@ fun ReaderScreen(
             }
         }
 
+        if (!chromeVisible && !settingsVisible) {
+            ReaderStatusOverlay(
+                title = item.title,
+                page = pageNumber.intValue,
+                total = totalPages,
+                showClock = overlayClock,
+                showBattery = overlayBattery,
+                showTitle = overlayTitle,
+                showPage = overlayPage,
+                paper = paper,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        }
+
+        if (autoTurn && autoPaused && !settingsVisible) {
+            AutoTurnPaused(
+                seconds = autoTurnSeconds,
+                onResume = { autoPaused = false },
+                onStop = {
+                    autoPaused = false
+                    vm.prefs.setAutoTurn(false)
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
         ReaderChrome(
             visible = chromeVisible && !settingsVisible,
             title = item.title,
@@ -356,31 +422,39 @@ fun ReaderScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 expanded = settingsExpanded,
                 onToggleExpand = { settingsExpanded = !settingsExpanded },
-            direction = direction,
-            spread = spreadMode,
-            effect = pageEffect,
-            isText = reader.isText,
-            textSize = textSizeSp,
-            textBackground = textBackground,
-            letterSpacing = letterSpacing,
-            lineSpacing = lineSpacing,
-            onTextBackground = { vm.prefs.setTextBackground(it) },
-            onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
-            onLineSpacing = { vm.prefs.setLineSpacing(it) },
-            orientation = orientation,
-            systemBrightness = systemBrightness,
-            brightness = brightness,
-            onOrientation = { vm.prefs.setOrientation(it) },
-            onSystemBrightness = { vm.prefs.setSystemBrightness(it) },
-            onBrightness = { vm.prefs.setBrightness(it) },
-            onDirection = { vm.setBookState(item.id) { s -> s.copy(direction = it) } },
-            onSpread = { vm.setBookState(item.id) { s -> s.copy(spread = it) } },
-            onEffect = { vm.prefs.setPageEffect(it) },
-            onTextSize = { vm.prefs.setTextSize(it) },
+                direction = direction,
+                spread = spreadMode,
+                effect = pageEffect,
+                isText = reader.isText,
+                textSize = textSizeSp,
+                textBackground = textBackground,
+                letterSpacing = letterSpacing,
+                lineSpacing = lineSpacing,
+                onTextBackground = { vm.prefs.setTextBackground(it) },
+                onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
+                onLineSpacing = { vm.prefs.setLineSpacing(it) },
+                autoTurn = autoTurn,
+                autoTurnSeconds = autoTurnSeconds,
+                onAutoTurn = {
+                    autoPaused = false
+                    vm.prefs.setAutoTurn(it)
+                },
+                onAutoTurnSeconds = { vm.prefs.setAutoTurnSeconds(it) },
+                orientation = orientation,
+                systemBrightness = systemBrightness,
+                brightness = brightness,
+                onOrientation = { vm.prefs.setOrientation(it) },
+                onSystemBrightness = { vm.prefs.setSystemBrightness(it) },
+                onBrightness = { vm.prefs.setBrightness(it) },
+                onDirection = { vm.setBookState(item.id) { s -> s.copy(direction = it) } },
+                onSpread = { vm.setBookState(item.id) { s -> s.copy(spread = it) } },
+                onEffect = { vm.prefs.setPageEffect(it) },
+                onTextSize = { vm.prefs.setTextSize(it) },
+                groupLabel = group.label,
                 onMakeDefault = {
-                    vm.prefs.setDirection(direction)
-                    vm.prefs.setSpread(spreadMode)
-                    vm.say("지금 설정을 기본값으로 저장했습니다")
+                    vm.prefs.setDirection(group, direction)
+                    vm.prefs.setSpread(group, spreadMode)
+                    vm.say("${group.label} 기본값으로 저장했습니다")
                 },
                 onDismiss = { settingsVisible = false },
             )
@@ -404,6 +478,7 @@ private fun Modifier.readerTaps(
     onMenu: () -> Unit,
 ): Modifier = pointerInput(tapToTurn, rtl) {
     detectTapGestures { offset ->
+        if (nav.interceptTap()) return@detectTapGestures
         val x = if (size.width > 0) offset.x / size.width else 0.5f
         val left = x < TAP_EDGE
         val right = x > 1f - TAP_EDGE
@@ -553,7 +628,7 @@ private fun SpreadPager(
             animate(
                 initialValue = turn,
                 targetValue = if (forward) 1f else -1f,
-                animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
             ) { value, _ -> turn = value }
         }
         Snapshot.withMutableSnapshot {
@@ -1214,6 +1289,39 @@ private fun PageJump(
     )
 }
 
+/** 자동 넘기기를 손으로 멈췄을 때 아래에 뜨는 안내 */
+@Composable
+private fun AutoTurnPaused(
+    seconds: Float,
+    onResume: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.navigationBarsPadding().padding(16.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xF01F1B17),
+    ) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "자동 넘기기 멈춤 · ${seconds.toInt()}초",
+                color = PageText,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onResume) {
+                Icon(Icons.Default.PlayArrow, null, tint = PageText)
+                Spacer(Modifier.width(4.dp))
+                Text("계속", color = PageText)
+            }
+            TextButton(onClick = onStop) { Text("끄기", color = PageText) }
+        }
+    }
+}
+
 /** 마지막 쪽에서 한 번 더 넘기면 나온다 */
 @Composable
 private fun EndPanel(
@@ -1293,6 +1401,10 @@ private fun ReaderSettings(
     onTextBackground: (TextBackground) -> Unit,
     onLetterSpacing: (Float) -> Unit,
     onLineSpacing: (Float) -> Unit,
+    autoTurn: Boolean,
+    autoTurnSeconds: Float,
+    onAutoTurn: (Boolean) -> Unit,
+    onAutoTurnSeconds: (Float) -> Unit,
     orientation: OrientationMode,
     systemBrightness: Boolean,
     brightness: Float,
@@ -1303,6 +1415,7 @@ private fun ReaderSettings(
     onSpread: (SpreadMode) -> Unit,
     onEffect: (PageEffect) -> Unit,
     onTextSize: (Float) -> Unit,
+    groupLabel: String,
     onMakeDefault: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1317,8 +1430,9 @@ private fun ReaderSettings(
         color = MaterialTheme.colorScheme.surface,
         shape = if (expanded) RectangleShape
         else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        tonalElevation = 3.dp,
-        shadowElevation = 12.dp,
+        // tonalElevation 을 주면 M3 가 primary(황토색) 를 표면에 섞어 누렇게 뜬다
+        tonalElevation = 0.dp,
+        shadowElevation = 16.dp,
     ) {
         Column(Modifier.fillMaxSize()) {
             Row(
@@ -1488,6 +1602,31 @@ private fun ReaderSettings(
                 HorizontalDivider()
                 Spacer(Modifier.height(4.dp))
 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("자동 넘기기", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "넘어가는 중에 화면을 누르면 멈춥니다",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = autoTurn, onCheckedChange = onAutoTurn)
+                }
+                if (autoTurn) {
+                    Text(
+                        "${autoTurnSeconds.toInt()}초에 한 번",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Slider(
+                        value = autoTurnSeconds,
+                        onValueChange = onAutoTurnSeconds,
+                        valueRange = 2f..60f,
+                        steps = 57,
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
                 Text("화면 회전", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OrientationMode.entries.forEach { o ->
@@ -1530,7 +1669,7 @@ private fun ReaderSettings(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Button(onClick = onMakeDefault, modifier = Modifier.fillMaxWidth()) {
-                    Text("모든 책의 기본값으로 저장")
+                    Text("$groupLabel 의 기본값으로 저장")
                 }
             }
         }
