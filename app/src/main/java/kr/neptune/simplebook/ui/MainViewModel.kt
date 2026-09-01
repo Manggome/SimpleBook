@@ -230,6 +230,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun hasCustomCover(item: ShelfItem): Boolean = Covers.hasCustom(ctx, item)
 
+    /** "안에 있는 책에서 표지 가져오기" 용 후보. null 이면 아직 훑는 중 */
+    private val _coverCandidates = MutableStateFlow<List<ShelfItem>?>(null)
+    val coverCandidates: StateFlow<List<ShelfItem>?> = _coverCandidates.asStateFlow()
+
+    fun loadCoverCandidates(folder: ShelfItem) {
+        viewModelScope.launch {
+            _coverCandidates.value = null
+            val list = store.cached(folder.id)
+                ?: Library.scanFolder(ctx, folder).also { store.putCache(folder.id, it) }
+            _coverCandidates.value = list.filterNot { it.isFolder }
+                .sortedWith(compareBy(Library.NATURAL) { it.title })
+        }
+    }
+
+    fun clearCoverCandidates() {
+        _coverCandidates.value = null
+    }
+
+    fun useCoverOf(target: ShelfItem, source: ShelfItem) {
+        viewModelScope.launch {
+            val ok = Covers.useCoverOf(ctx, target, source)
+            _notice.value =
+                if (ok) "${source.title} 의 표지를 가져왔습니다" else "그 책의 표지를 뽑지 못했습니다"
+        }
+    }
+
     // ------------------------------------------------------------ 정렬
 
     fun sorted(list: List<ShelfItem>, mode: SortMode): List<ShelfItem> {

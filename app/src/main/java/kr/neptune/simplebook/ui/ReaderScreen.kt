@@ -37,21 +37,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,9 +86,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
@@ -92,6 +100,7 @@ import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
 import kr.neptune.simplebook.core.ShelfItem
 import kr.neptune.simplebook.core.SpreadMode
+import kr.neptune.simplebook.core.TextBackground
 
 private val PageText = Color(0xFFE6E0D6)
 
@@ -140,6 +149,8 @@ fun ReaderScreen(
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle()
     val textSizeSp by vm.prefs.textSize.collectAsStateWithLifecycle()
     val pageEffect by vm.prefs.pageEffect.collectAsStateWithLifecycle()
+    val textBackground by vm.prefs.textBackground.collectAsStateWithLifecycle()
+    val letterSpacing by vm.prefs.letterSpacing.collectAsStateWithLifecycle()
 
     val direction = bookState.direction ?: defaultDirection
     val spreadMode = bookState.spread ?: defaultSpread
@@ -157,6 +168,7 @@ fun ReaderScreen(
     var searchVisible by remember(item.id) { mutableStateOf(false) }
     var highlight by remember(item.id) { mutableStateOf<String?>(null) }
     var textStarts by remember(item.id) { mutableStateOf<List<Int>?>(null) }
+    var jumpVisible by remember(item.id) { mutableStateOf(false) }
 
     val pageNumber = remember(item.id) { mutableIntStateOf(bookState.page) }
     var totalPages by remember(item.id) { mutableIntStateOf(0) }
@@ -173,17 +185,21 @@ fun ReaderScreen(
     }
 
     val onMenu = { chromeVisible = !chromeVisible }
+    // 소설은 종이색을 고를 수 있다. 만화는 어느 테마에서든 검은 바탕이 낫다.
+    val paper = if (reader.isText) Color(textBackground.paper) else ReaderBackground
+    val ink = if (reader.isText) Color(textBackground.ink) else PageText
 
     // 뒤로가기는 열려 있는 것부터 하나씩 닫는다. 바로 책장으로 튕기면 답답하다
-    BackHandler(enabled = searchVisible || endPanelVisible || chromeVisible) {
+    BackHandler(enabled = searchVisible || endPanelVisible || chromeVisible || jumpVisible) {
         when {
+            jumpVisible -> jumpVisible = false
             searchVisible -> searchVisible = false
             endPanelVisible -> endPanelVisible = false
             else -> chromeVisible = false
         }
     }
 
-    Box(Modifier.fillMaxSize().background(ReaderBackground)) {
+    Box(Modifier.fillMaxSize().background(paper)) {
 
         when {
             reader.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -220,6 +236,8 @@ fun ReaderScreen(
                         onTotal = { totalPages = it },
                         highlight = highlight,
                         onPages = { textStarts = it },
+                        ink = ink,
+                        letterSpacing = letterSpacing,
                     )
                 } else {
                     ImageContent(
@@ -249,9 +267,23 @@ fun ReaderScreen(
             canSearch = reader.isText,
             onBack = onClose,
             onSeek = { nav.seekPage(it) },
+            onStep = { nav.seekPage((pageNumber.intValue + it).coerceIn(0, (totalPages - 1).coerceAtLeast(0))) },
+            onOpenJump = { jumpVisible = true },
             onSearch = { searchVisible = true },
             onSettings = { settingsVisible = true },
         )
+
+        if (jumpVisible) {
+            PageJump(
+                total = totalPages,
+                current = pageNumber.intValue,
+                onGo = {
+                    jumpVisible = false
+                    nav.seekPage(it)
+                },
+                onDismiss = { jumpVisible = false },
+            )
+        }
 
         if (searchVisible) {
             TextSearch(
@@ -292,6 +324,10 @@ fun ReaderScreen(
             effect = pageEffect,
             isText = reader.isText,
             textSize = textSizeSp,
+            textBackground = textBackground,
+            letterSpacing = letterSpacing,
+            onTextBackground = { vm.prefs.setTextBackground(it) },
+            onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
             onDirection = { vm.setBookState(item.id) { s -> s.copy(direction = it) } },
             onSpread = { vm.setBookState(item.id) { s -> s.copy(spread = it) } },
             onEffect = { vm.prefs.setPageEffect(it) },
@@ -475,6 +511,31 @@ private fun SpreadPager(
     }
 }
 
+/** 두 손가락으로 키우고 줄인다. 확대 중에만 한 손가락 이동을 가져간다 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ZoomBox(
+    modifier: Modifier = Modifier,
+    content: @Composable (Modifier) -> Unit,
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val transform = rememberTransformableState { zoomChange, panChange, _ ->
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
+        offset = if (scale > 1f) offset + panChange else Offset.Zero
+    }
+    Box(modifier.transformable(state = transform, canPan = { scale > 1f })) {
+        content(
+            Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            }
+        )
+    }
+}
+
 @Composable
 private fun Spread(
     group: IntArray,
@@ -541,14 +602,15 @@ private fun ImageContent(
         }
         AtEndWatcher(listState, count, nav)
 
-        LazyColumn(
-            state = listState,
+        ZoomBox(
             modifier = Modifier
                 .fillMaxSize()
                 // 세로 스크롤에서 좌우 탭은 의미가 없다. 아무 데나 누르면 메뉴
-                .readerTaps(tapToTurn = false, rtl = false, nav = nav, onMenu = onMenu),
-        ) {
-            items(count) { index -> VerticalPage(reader, index, widthPx, heightPx) }
+                .readerTaps(tapToTurn = false, rtl = false, nav = nav, onMenu = onMenu)
+        ) { inner ->
+            LazyColumn(state = listState, modifier = inner.fillMaxSize()) {
+                items(count) { index -> VerticalPage(reader, index, widthPx, heightPx) }
+            }
         }
         return
     }
@@ -671,12 +733,15 @@ private fun TextContent(
     onTotal: (Int) -> Unit,
     highlight: String?,
     onPages: (List<Int>) -> Unit,
+    ink: Color,
+    letterSpacing: Float,
 ) {
     val density = LocalDensity.current
     val style = TextStyle(
         fontSize = fontSizeSp.sp,
         lineHeight = (fontSizeSp * 1.75f).sp,
-        color = PageText,
+        letterSpacing = letterSpacing.em,
+        color = ink,
     )
 
     val padH = with(density) { 22.dp.roundToPx() }
@@ -694,7 +759,7 @@ private fun TextContent(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("쪽을 나누는 중…", color = PageText, style = MaterialTheme.typography.bodySmall)
+                Text("쪽을 나누는 중…", color = ink, style = MaterialTheme.typography.bodySmall)
             }
         }
         return
@@ -879,6 +944,8 @@ private fun ReaderChrome(
     canSearch: Boolean,
     onBack: () -> Unit,
     onSeek: (Int) -> Unit,
+    onStep: (Int) -> Unit,
+    onOpenJump: () -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -929,24 +996,78 @@ private fun ReaderChrome(
                     .fillMaxWidth()
                     .background(scrim)
                     .navigationBarsPadding()
-                    .padding(20.dp, 10.dp),
+                    .padding(8.dp, 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    if (total > 0) "${page + 1} / $total" else "—",
-                    color = PageText,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-                if (total > 1) {
-                    Slider(
-                        value = page.coerceIn(0, total - 1).toFloat(),
-                        onValueChange = { onSeek(it.toInt()) },
-                        valueRange = 0f..(total - 1).toFloat(),
+                // 쪽 번호를 누르면 원하는 쪽으로 바로 뛴다
+                Surface(
+                    onClick = onOpenJump,
+                    enabled = total > 1,
+                    color = Color.Transparent,
+                    shape = RoundedCornerShape(6.dp),
+                ) {
+                    Text(
+                        if (total > 0) "${page + 1} / $total" else "—",
+                        color = PageText,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(14.dp, 4.dp),
                     )
+                }
+
+                if (total > 1) {
+                    // 화살표는 쪽 번호 기준이다. 옆의 슬라이더와 방향을 맞추기 위함.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { onStep(-1) }, enabled = page > 0) {
+                            Icon(Icons.Default.KeyboardArrowLeft, "이전 쪽", tint = PageText)
+                        }
+                        Slider(
+                            value = page.coerceIn(0, total - 1).toFloat(),
+                            onValueChange = { onSeek(it.toInt()) },
+                            valueRange = 0f..(total - 1).toFloat(),
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { onStep(1) }, enabled = page < total - 1) {
+                            Icon(Icons.Default.KeyboardArrowRight, "다음 쪽", tint = PageText)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/** 쪽 번호를 직접 넣어 이동 */
+@Composable
+private fun PageJump(
+    total: Int,
+    current: Int,
+    onGo: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var input by remember { mutableStateOf((current + 1).toString()) }
+    val parsed = input.toIntOrNull()
+    val valid = parsed != null && parsed in 1..total
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("쪽 이동") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { new -> input = new.filter { it.isDigit() }.take(6) },
+                    singleLine = true,
+                    label = { Text("1 ~ $total") },
+                    isError = input.isNotEmpty() && !valid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { parsed?.let { onGo(it - 1) } }, enabled = valid) { Text("이동") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
 }
 
 /** 마지막 쪽에서 한 번 더 넘기면 나온다 */
@@ -1013,6 +1134,10 @@ private fun ReaderSettings(
     effect: PageEffect,
     isText: Boolean,
     textSize: Float,
+    textBackground: TextBackground,
+    letterSpacing: Float,
+    onTextBackground: (TextBackground) -> Unit,
+    onLetterSpacing: (Float) -> Unit,
     onDirection: (ReadDirection) -> Unit,
     onSpread: (SpreadMode) -> Unit,
     onEffect: (PageEffect) -> Unit,
@@ -1114,6 +1239,36 @@ private fun ReaderSettings(
                     valueRange = 12f..34f,
                     steps = 21,
                 )
+
+                Text(
+                    "자간  ${if (letterSpacing >= 0) "+" else ""}${"%.2f".format(letterSpacing)}em",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Slider(
+                    value = letterSpacing,
+                    onValueChange = onLetterSpacing,
+                    valueRange = -0.05f..0.30f,
+                    steps = 34,
+                )
+
+                Spacer(Modifier.height(4.dp))
+                Text("종이색", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextBackground.entries.forEach { bg ->
+                        FilterChip(
+                            selected = bg == textBackground,
+                            onClick = { onTextBackground(bg) },
+                            label = { Text(bg.label) },
+                            leadingIcon = {
+                                Box(
+                                    Modifier
+                                        .size(16.dp)
+                                        .background(Color(bg.paper), RoundedCornerShape(3.dp))
+                                )
+                            },
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(8.dp))

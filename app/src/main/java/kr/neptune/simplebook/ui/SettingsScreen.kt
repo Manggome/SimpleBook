@@ -36,7 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,6 +52,7 @@ import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
 import kr.neptune.simplebook.core.SpreadMode
+import kr.neptune.simplebook.core.TextBackground
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +74,9 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()
     val systemBrightness by vm.prefs.systemBrightness.collectAsStateWithLifecycle()
     val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
+    val textSize by vm.prefs.textSize.collectAsStateWithLifecycle()
+    val textBackground by vm.prefs.textBackground.collectAsStateWithLifecycle()
+    val letterSpacing by vm.prefs.letterSpacing.collectAsStateWithLifecycle()
 
     var notesOpen by remember { mutableStateOf(false) }
     val changelog = remember {
@@ -166,6 +175,51 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             ToggleRow("읽는 동안 화면 켜두기", null, keepScreenOn) { vm.prefs.setKeepScreenOn(it) }
             ToggleRow("읽을 때 상태바 숨기기", null, immersive) { vm.prefs.setImmersive(it) }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            SectionTitle("텍스트 책 (TXT)")
+
+            Text("글자 크기  ${textSize.toInt()}sp", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = textSize,
+                onValueChange = { vm.prefs.setTextSize(it) },
+                valueRange = 12f..34f,
+                steps = 21,
+            )
+
+            Text(
+                "자간  ${if (letterSpacing >= 0) "+" else ""}${"%.2f".format(letterSpacing)}em",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = letterSpacing,
+                onValueChange = { vm.prefs.setLetterSpacing(it) },
+                valueRange = -0.05f..0.30f,
+                steps = 34,
+            )
+
+            Spacer(Modifier.height(4.dp))
+            Text("종이색", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextBackground.entries.forEach { bg ->
+                    FilterChip(
+                        selected = bg == textBackground,
+                        onClick = { vm.prefs.setTextBackground(bg) },
+                        label = { Text(bg.label) },
+                        leadingIcon = {
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .background(Color(bg.paper), RoundedCornerShape(3.dp))
+                            )
+                        },
+                    )
+                }
+            }
+            Caption("만화·PDF 는 어느 테마에서든 검은 바탕으로 봅니다.")
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()

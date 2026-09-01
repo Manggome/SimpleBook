@@ -105,6 +105,23 @@ object Covers {
             ok
         }
 
+    /**
+     * 다른 항목의 표지를 그대로 가져다 쓴다.
+     * 폴더 썸네일을 안에 든 PDF·만화의 첫 페이지로 잡을 때 쓴다.
+     */
+    suspend fun useCoverOf(context: Context, target: ShelfItem, source: ShelfItem): Boolean {
+        val from = file(context, source) ?: return false
+        return withContext(Dispatchers.IO) {
+            val ok = runCatching {
+                val dst = customFile(context, target)
+                from.copyTo(dst, overwrite = true)
+                dst.length() > 0
+            }.onFailure { Log.w(TAG, "표지 복사 실패", it) }.getOrDefault(false)
+            if (ok) bump()
+            ok
+        }
+    }
+
     /** 직접 지정한 표지를 지우고 자동 추출로 되돌린다 */
     fun clearCustom(context: Context, item: ShelfItem) {
         runCatching { customFile(context, item).delete() }

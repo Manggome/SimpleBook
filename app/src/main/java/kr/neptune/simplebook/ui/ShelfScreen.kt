@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
@@ -103,6 +105,8 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     var addOpen by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<ShelfItem?>(null) }
     var coverTarget by remember { mutableStateOf<ShelfItem?>(null) }
+    var pickInside by remember { mutableStateOf<ShelfItem?>(null) }
+    val coverCandidates by vm.coverCandidates.collectAsStateWithLifecycle()
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -326,8 +330,93 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                 vm.resetCover(item)
                 menuFor = null
             },
+            onPickInside = {
+                pickInside = item
+                menuFor = null
+                vm.loadCoverCandidates(item)
+            },
         )
     }
+
+    pickInside?.let { folder ->
+        CoverFromInside(
+            folder = folder,
+            candidates = coverCandidates,
+            revision = coverRevision,
+            onPick = {
+                vm.useCoverOf(folder, it)
+                pickInside = null
+                vm.clearCoverCandidates()
+            },
+            onDismiss = {
+                pickInside = null
+                vm.clearCoverCandidates()
+            },
+        )
+    }
+}
+
+/** 폴더 썸네일을 안에 든 책(예: PDF 첫 페이지)에서 가져온다 */
+@Composable
+private fun CoverFromInside(
+    folder: ShelfItem,
+    candidates: List<ShelfItem>?,
+    revision: Int,
+    onPick: (ShelfItem) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("표지로 쓸 책 고르기") },
+        text = {
+            when {
+                candidates == null -> Box(
+                    Modifier.fillMaxWidth().height(120.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+
+                candidates.isEmpty() -> Text(
+                    "${folder.title} 안에 표지를 뽑을 책이 없습니다",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 84.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.height(320.dp),
+                ) {
+                    items(candidates, key = { it.id }) { child ->
+                        Column(Modifier.clickable { onPick(child) }) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(0.7f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Placeholder(child)
+                                AsyncImage(
+                                    model = CoverRequest(child, revision),
+                                    contentDescription = child.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            Text(
+                                child.title,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
 }
 
 private fun onItemClick(vm: MainViewModel, item: ShelfItem) {
@@ -557,6 +646,7 @@ private fun ItemMenu(
     onMarkUnread: () -> Unit,
     onPickCover: () -> Unit,
     onResetCover: () -> Unit,
+    onPickInside: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -575,7 +665,10 @@ private fun ItemMenu(
                 )
 
                 Spacer(Modifier.height(12.dp))
-                MenuAction(Icons.Default.Image, "표지 바꾸기", onPickCover)
+                MenuAction(Icons.Default.Image, "표지 바꾸기 (사진에서)", onPickCover)
+                if (item.isFolder) {
+                    MenuAction(Icons.Default.Collections, "안에 있는 책에서 표지 가져오기", onPickInside)
+                }
                 if (hasCustomCover) {
                     MenuAction(Icons.Default.Restore, "표지 되돌리기", onResetCover)
                 }

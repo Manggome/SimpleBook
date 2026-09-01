@@ -28,6 +28,17 @@ enum class SpreadMode(val label: String) {
     DOUBLE("2쪽 고정"),
 }
 
+/**
+ * TXT 를 읽을 때의 종이색. 이미지 책은 항상 검은 바탕이라 여기 해당하지 않는다.
+ *
+ * @param paper 배경, [ink] 글자색 (ARGB)
+ */
+enum class TextBackground(val label: String, val paper: Long, val ink: Long) {
+    WHITE("하양", 0xFFFAF7F2, 0xFF1B1815),
+    GRAY("어두운 회색", 0xFF2B2B2E, 0xFFDCD8D2),
+    BLACK("검정", 0xFF000000, 0xFFCFCAC3),
+}
+
 /** 페이지가 넘어갈 때의 움직임 */
 enum class PageEffect(val label: String) {
     /** 페이지가 손가락을 따라 옆으로 밀려 나간다 */

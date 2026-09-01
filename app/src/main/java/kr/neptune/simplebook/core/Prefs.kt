@@ -104,6 +104,22 @@ class Prefs(context: Context) {
         _textSize.value = clamped
     }
 
+    /** TXT 종이색 */
+    private val _textBackground = MutableStateFlow(enum("text_background", TextBackground.GRAY))
+    val textBackground: StateFlow<TextBackground> = _textBackground.asStateFlow()
+
+    fun setTextBackground(v: TextBackground) = put("text_background", v, _textBackground)
+
+    /** 자간. 글자 크기에 대한 비율(em) 이라 글자를 키워도 균형이 유지된다 */
+    private val _letterSpacing = MutableStateFlow(sp.getFloat("letter_spacing", 0f))
+    val letterSpacing: StateFlow<Float> = _letterSpacing.asStateFlow()
+
+    fun setLetterSpacing(v: Float) {
+        val clamped = v.coerceIn(-0.05f, 0.30f)
+        sp.edit().putFloat("letter_spacing", clamped).apply()
+        _letterSpacing.value = clamped
+    }
+
     // ---------------------------------------------------------------- 업데이트
 
     private val _autoUpdate = MutableStateFlow(sp.getBoolean("auto_update", true))
