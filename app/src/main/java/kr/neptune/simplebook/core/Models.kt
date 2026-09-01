@@ -43,6 +43,9 @@ enum class TextBackground(val label: String, val paper: Long, val ink: Long) {
 enum class PageEffect(val label: String) {
     /** 페이지가 손가락을 따라 옆으로 밀려 나간다 */
     SLIDE("슬라이드"),
+    /** 종이 한 장이 축을 중심으로 들려서 넘어간다 */
+    BOOK("책 넘김"),
+
     /** 애니메이션 없이 즉시 바뀐다. 느린 기기에서 체감이 빠르다 */
     NONE("없음"),
 }

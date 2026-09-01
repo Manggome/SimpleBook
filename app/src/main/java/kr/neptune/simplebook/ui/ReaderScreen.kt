@@ -1,6 +1,8 @@
 package kr.neptune.simplebook.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,6 +12,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -60,6 +64,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -78,6 +83,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -96,6 +102,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.core.BookState
+import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
 import kr.neptune.simplebook.core.ReadDirection
 import kr.neptune.simplebook.core.ShelfItem
@@ -151,6 +158,9 @@ fun ReaderScreen(
     val pageEffect by vm.prefs.pageEffect.collectAsStateWithLifecycle()
     val textBackground by vm.prefs.textBackground.collectAsStateWithLifecycle()
     val letterSpacing by vm.prefs.letterSpacing.collectAsStateWithLifecycle()
+    val orientation by vm.prefs.orientation.collectAsStateWithLifecycle()
+    val systemBrightness by vm.prefs.systemBrightness.collectAsStateWithLifecycle()
+    val brightness by vm.prefs.brightness.collectAsStateWithLifecycle()
 
     val direction = bookState.direction ?: defaultDirection
     val spreadMode = bookState.spread ?: defaultSpread
@@ -328,6 +338,12 @@ fun ReaderScreen(
             letterSpacing = letterSpacing,
             onTextBackground = { vm.prefs.setTextBackground(it) },
             onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
+            orientation = orientation,
+            systemBrightness = systemBrightness,
+            brightness = brightness,
+            onOrientation = { vm.prefs.setOrientation(it) },
+            onSystemBrightness = { vm.prefs.setSystemBrightness(it) },
+            onBrightness = { vm.prefs.setBrightness(it) },
             onDirection = { vm.setBookState(item.id) { s -> s.copy(direction = it) } },
             onSpread = { vm.setBookState(item.id) { s -> s.copy(spread = it) } },
             onEffect = { vm.prefs.setPageEffect(it) },
@@ -478,10 +494,14 @@ private fun SpreadPager(
         return
     }
 
-    // ---- 효과 없음: 현재 펼침면만 그리고 스와이프/탭으로 즉시 교체한다
+    // ---- 책 넘김 / 효과 없음: 현재 펼침면만 그리고 스와이프·탭으로 교체한다
     var index by remember(spreads.size) {
         mutableIntStateOf(spreadIndexOf(spreads, startPage))
     }
+    // 넘어가는 중인 두 장. null 이면 정지 상태
+    var flip by remember { mutableStateOf<Flip?>(null) }
+    val flipProgress = remember { Animatable(0f) }
+
     LaunchedEffect(spreads) {
         index = spreadIndexOf(spreads, pageNumber.intValue)
     }
@@ -491,14 +511,33 @@ private fun SpreadPager(
         offset = Offset.Zero
     }
 
+    fun goTo(target: Int, forward: Boolean) {
+        val from = index
+        index = target
+        if (effect != PageEffect.BOOK || from == target) return
+        scope.launch {
+            flip = Flip(
+                top = if (forward) from else target,
+                under = if (forward) target else from,
+                forward = forward,
+            )
+            flipProgress.snapTo(0f)
+            flipProgress.animateTo(1f, tween(durationMillis = 300))
+            flip = null
+        }
+    }
+
     nav.turn = { delta ->
         val target = index + delta
         when {
             target >= spreads.size -> nav.onPastEnd()
-            target >= 0 -> index = target
+            target >= 0 -> goTo(target, delta > 0)
         }
     }
-    nav.seekPage = { p -> index = spreadIndexOf(spreads, p) }
+    nav.seekPage = { p ->
+        val target = spreadIndexOf(spreads, p)
+        goTo(target, target > index)
+    }
 
     Box(
         Modifier
@@ -507,34 +546,35 @@ private fun SpreadPager(
             .swipeToTurn(!zoomed, rtl, nav)
             .then(zoomModifier)
     ) {
-        Spread(spreads[index.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
+        val turning = flip
+        if (turning == null) {
+            Spread(spreads[index.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
+        } else {
+            Spread(spreads[turning.under.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
+
+            // 앞으로 갈 때는 지나간 장이 들려 넘어가고, 뒤로 갈 때는 새 장이 펴진다
+            val lifted =
+                if (turning.forward) flipProgress.value else 1f - flipProgress.value
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // 우철이면 책등이 오른쪽에 있다
+                        transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
+                        rotationY = (if (rtl) 1f else -1f) * 90f * lifted
+                        cameraDistance = 24f * density
+                    }
+            ) {
+                Spread(spreads[turning.top.coerceIn(0, spreads.size - 1)], rtl, scale, offset, page)
+                // 들릴수록 그늘이 진다
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f * lifted)))
+            }
+        }
     }
 }
 
-/** 두 손가락으로 키우고 줄인다. 확대 중에만 한 손가락 이동을 가져간다 */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ZoomBox(
-    modifier: Modifier = Modifier,
-    content: @Composable (Modifier) -> Unit,
-) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val transform = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(1f, 5f)
-        offset = if (scale > 1f) offset + panChange else Offset.Zero
-    }
-    Box(modifier.transformable(state = transform, canPan = { scale > 1f })) {
-        content(
-            Modifier.graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offset.x
-                translationY = offset.y
-            }
-        )
-    }
-}
+/** 넘어가는 중인 두 장 */
+private data class Flip(val top: Int, val under: Int, val forward: Boolean)
 
 @Composable
 private fun Spread(
@@ -1138,6 +1178,12 @@ private fun ReaderSettings(
     letterSpacing: Float,
     onTextBackground: (TextBackground) -> Unit,
     onLetterSpacing: (Float) -> Unit,
+    orientation: OrientationMode,
+    systemBrightness: Boolean,
+    brightness: Float,
+    onOrientation: (OrientationMode) -> Unit,
+    onSystemBrightness: (Boolean) -> Unit,
+    onBrightness: (Float) -> Unit,
     onDirection: (ReadDirection) -> Unit,
     onSpread: (SpreadMode) -> Unit,
     onEffect: (PageEffect) -> Unit,
@@ -1149,7 +1195,10 @@ private fun ReaderSettings(
 
     androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().padding(20.dp, 0.dp, 20.dp, 28.dp),
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp, 0.dp, 20.dp, 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (isText) {
@@ -1271,9 +1320,48 @@ private fun ReaderSettings(
                 }
             }
 
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(4.dp))
+
+            Text("화면 회전", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OrientationMode.entries.forEach { o ->
+                    FilterChip(
+                        selected = o == orientation,
+                        onClick = { onOrientation(o) },
+                        label = { Text(o.label) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("시스템 밝기 사용", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "끄면 이 앱에서만 밝기를 따로 잡습니다",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = systemBrightness, onCheckedChange = onSystemBrightness)
+            }
+            if (!systemBrightness) {
+                Text(
+                    "밝기  ${(brightness * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Slider(
+                    value = brightness,
+                    onValueChange = onBrightness,
+                    valueRange = 0.05f..1f,
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
             Text(
-                "읽기 방식과 쪽 수는 이 책에만 적용됩니다. 넘김 효과와 글자 크기는 전체 공통입니다.",
+                "읽기 방식과 쪽 수는 이 책에만 적용됩니다. 나머지는 전체 공통입니다.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
