@@ -1,5 +1,6 @@
 package kr.neptune.simplebook.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
@@ -190,7 +191,6 @@ fun ReaderScreen(
     val useCustomFont by vm.prefs.useCustomFont.collectAsStateWithLifecycle()
     val autoTurn by vm.prefs.autoTurn.collectAsStateWithLifecycle()
     val autoTurnSeconds by vm.prefs.autoTurnSeconds.collectAsStateWithLifecycle()
-    val readerInfo by vm.prefs.readerInfo.collectAsStateWithLifecycle()
     val readingFont = rememberReadingFont(useCustomFont)
 
     val direction = bookState.direction ?: defaultDirection
@@ -247,6 +247,15 @@ fun ReaderScreen(
             nav.turn(1)
         }
     }
+
+    // 정보 줄은 카메라 구멍 여백 바깥에 놓여야 해서 액티비티가 그린다. 값만 올려 준다
+    LaunchedEffect(item.id, pageNumber.intValue, totalPages, chromeVisible, paper) {
+        vm.publishReaderStatus(
+            if (chromeVisible) null
+            else ReaderStatus(item.title, pageNumber.intValue, totalPages, paper)
+        )
+    }
+    DisposableEffect(Unit) { onDispose { vm.publishReaderStatus(null) } }
 
     val onMenu = { chromeVisible = !chromeVisible }
     // 소설은 종이색을 고를 수 있다. 만화는 어느 테마에서든 검은 바탕이 낫다.
@@ -329,16 +338,6 @@ fun ReaderScreen(
                     )
                 }
             }
-        }
-
-        if (readerInfo && !chromeVisible) {
-            ReaderStatusOverlay(
-                title = item.title,
-                page = pageNumber.intValue,
-                total = totalPages,
-                paper = paper,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
 
         if (autoTurn && autoPaused && !settingsVisible) {
@@ -432,7 +431,12 @@ fun ReaderScreen(
                 onMakeDefault = {
                     vm.prefs.setDirection(group, direction)
                     vm.prefs.setSpread(group, spreadMode)
-                    vm.say("${group.label} 기본값으로 저장했습니다")
+                    // 책장 스낵바는 읽는 중에는 안 보인다. 저장됐는지 바로 알려 준다
+                    Toast.makeText(
+                        context,
+                        "${group.label} 기본값으로 저장했습니다",
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 },
                 onDismiss = { settingsVisible = false },
             )

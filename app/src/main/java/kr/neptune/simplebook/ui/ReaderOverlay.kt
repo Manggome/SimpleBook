@@ -29,6 +29,14 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import java.util.Date
 
+/** 정보 줄에 띄울 것. 액티비티가 그리므로 리더가 여기에 담아 올려 준다 */
+data class ReaderStatus(
+    val title: String,
+    val page: Int,
+    val total: Int,
+    val paper: Color,
+)
+
 /**
  * 읽는 동안 화면 맨 위에 얇게 얹는 정보 줄. 시계 · 배터리 · 책 이름 · 쪽수.
  *

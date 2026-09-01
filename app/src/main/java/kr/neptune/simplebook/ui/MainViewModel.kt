@@ -40,6 +40,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
 
+    /**
+     * 읽는 화면 맨 위 정보 줄에 띄울 것.
+     *
+     * 이 줄만은 카메라 구멍 여백 바깥, 화면 물리적 맨 위에 놓여야 해서
+     * 리더 안이 아니라 액티비티가 그린다. 그래서 값을 여기로 올려 둔다.
+     * 띄우지 않을 때(메뉴가 열렸을 때 등)는 null.
+     */
+    private val _readerStatus = MutableStateFlow<ReaderStatus?>(null)
+    val readerStatus: StateFlow<ReaderStatus?> = _readerStatus.asStateFlow()
+
+    fun publishReaderStatus(status: ReaderStatus?) {
+        _readerStatus.value = status
+    }
+
     /** null 이 아니면 이 책을 펴고 있다 */
     private val _reading = MutableStateFlow<ShelfItem?>(null)
     val reading: StateFlow<ShelfItem?> = _reading.asStateFlow()

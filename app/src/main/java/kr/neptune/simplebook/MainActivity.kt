@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +40,7 @@ import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.ThemeMode
 import kr.neptune.simplebook.ui.ReaderScreen
 import kr.neptune.simplebook.ui.SettingsScreen
+import kr.neptune.simplebook.ui.ReaderStatusOverlay
 import kr.neptune.simplebook.ui.ShelfScreen
 import kr.neptune.simplebook.ui.isPortrait
 import kr.neptune.simplebook.ui.MainViewModel
@@ -153,6 +155,19 @@ class MainActivity : ComponentActivity() {
                             book != null -> ReaderScreen(vm, book) { vm.closeBook() }
                             else -> ShelfScreen(vm) { settingsOpen = true }
                         }
+                    }
+
+                    // 정보 줄은 여백 바깥에 둔다. 카메라 구멍 때문에 화면을 내려도
+                    // 이 줄만은 물리적 맨 위 그 자리에 그대로 있어야 한다
+                    val status by vm.readerStatus.collectAsStateWithLifecycle()
+                    status?.takeIf { readerInfo }?.let {
+                        ReaderStatusOverlay(
+                            title = it.title,
+                            page = it.page,
+                            total = it.total,
+                            paper = it.paper,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
                     }
                 }
 
