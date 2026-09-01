@@ -44,13 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kr.neptune.simplebook.R
@@ -110,9 +105,9 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val orientation by prefs.orientation.collectAsStateWithLifecycle()
     val immersive by prefs.immersive.collectAsStateWithLifecycle()
     val avoidCutout by prefs.avoidCutout.collectAsStateWithLifecycle()
-    val cutoutExtra by prefs.cutoutExtra.collectAsStateWithLifecycle()
+    val cutoutPortrait by prefs.cutoutPortrait.collectAsStateWithLifecycle()
+    val cutoutLandscape by prefs.cutoutLandscape.collectAsStateWithLifecycle()
     val readerInfo by prefs.readerInfo.collectAsStateWithLifecycle()
-    val readerInfoOffset by prefs.readerInfoOffset.collectAsStateWithLifecycle()
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle()
     val systemBrightness by prefs.systemBrightness.collectAsStateWithLifecycle()
     val brightness by prefs.brightness.collectAsStateWithLifecycle()
@@ -127,19 +122,10 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
         }.getOrDefault("패치노트를 읽지 못했습니다")
     }
 
-    // 가로에서 구멍 여백이 0 으로 오는 기기가 있어, 실제로 잡힌 값을 보여 준다
-    val view = LocalView.current
-    val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val cutoutReading = remember(configuration, view) {
-        val insets = ViewCompat.getRootWindowInsets(view)
-            ?.getInsets(WindowInsetsCompat.Type.displayCutout())
-        if (insets == null) "감지하지 못했습니다"
-        else with(density) {
-            "위 ${insets.top.toDp().value.toInt()} · 아래 ${insets.bottom.toDp().value.toInt()} · " +
-                "왼 ${insets.left.toDp().value.toInt()} · 오 ${insets.right.toDp().value.toInt()} dp"
-        }
-    }
+    // 기기가 알려 주는 여백은 방향마다 제각각이라 그대로 보여 주고 손으로 맞출 길을 둔다
+    val portrait = isPortrait()
+    val cutoutReading = detectedCutoutText()
+    val detected = detectedCutoutDp()
 
     val fontPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -404,45 +390,36 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 avoidCutout,
             ) { prefs.setAvoidCutout(it) }
             if (avoidCutout) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("더 내리기", style = MaterialTheme.typography.bodyMedium)
-                        Caption("자동으로 잡힌 여백에 이만큼 더합니다")
-                    }
-                    NumberStepper(
-                        value = cutoutExtra.toInt(),
-                        range = 0..96,
-                        onChange = { prefs.setCutoutExtra(it.toFloat()) },
-                        step = 2,
-                        suffix = "dp",
-                        label = "더 내릴 만큼 (dp)",
-                    )
+                Caption(
+                    "정한 값 그대로 내립니다. 0 이면 정말 0 입니다. " +
+                        "방향마다 따로 저장해 두고 돌릴 때마다 알아서 바뀝니다."
+                )
+                CutoutRow(
+                    label = "세로일 때",
+                    active = portrait,
+                    value = cutoutPortrait.toInt(),
+                    onChange = { prefs.setCutoutInset(true, it.toFloat()) },
+                )
+                CutoutRow(
+                    label = "가로일 때",
+                    active = !portrait,
+                    value = cutoutLandscape.toInt(),
+                    onChange = { prefs.setCutoutInset(false, it.toFloat()) },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { prefs.setCutoutInset(portrait, detected.toFloat()) },
+                        enabled = detected > 0,
+                    ) { Text("지금 방향을 감지값(${detected}dp)으로") }
                 }
                 Caption("지금 기기가 알려 준 구멍 여백 — $cutoutReading")
             }
 
             ToggleRow(
                 "읽을 때 정보 줄 보기",
-                "시계 · 배터리 % · 책 이름 · 현재 쪽/전체 쪽을 상단바 자리에 띄웁니다",
+                "시계 · 배터리 % · 책 이름 · 현재 쪽/전체 쪽을 화면 맨 위에 띄웁니다",
                 readerInfo,
             ) { prefs.setReaderInfo(it) }
-            if (readerInfo) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "정보 줄 위치",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    NumberStepper(
-                        value = readerInfoOffset.toInt(),
-                        range = 0..96,
-                        onChange = { prefs.setReaderInfoOffset(it.toFloat()) },
-                        step = 2,
-                        suffix = "dp",
-                        label = "정보 줄 위치 (dp)",
-                    )
-                }
-            }
             ToggleRow("읽는 동안 화면 켜두기", null, keepScreenOn) { prefs.setKeepScreenOn(it) }
             ToggleRow(
                 "시스템 밝기 사용",
@@ -545,6 +522,33 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     "그리고 이미지가 들어 있는 폴더. RAR5 는 아직 읽지 못합니다."
             )
         }
+    }
+}
+
+/** 세로/가로 각각의 화면 내리는 양. 지금 방향인 쪽에 표시를 남긴다 */
+@Composable
+private fun CutoutRow(
+    label: String,
+    active: Boolean,
+    value: Int,
+    onChange: (Int) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (active) "$label  ●" else label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (active) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        NumberStepper(
+            value = value,
+            range = 0..160,
+            onChange = onChange,
+            step = 2,
+            suffix = "dp",
+            label = "$label 내릴 만큼 (dp)",
+        )
     }
 }
 

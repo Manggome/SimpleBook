@@ -5,14 +5,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.text.format.DateFormat
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,18 +33,16 @@ import java.util.Date
  * 읽는 동안 화면 맨 위에 얇게 얹는 정보 줄. 시계 · 배터리 · 책 이름 · 쪽수.
  *
  * 상태바를 숨기고 읽으면 시계와 배터리를 볼 수 없어서 필요하다.
- * 자리는 상태바가 있던 그 자리다. 그래서 이 줄을 켜면 상태바는 늘 숨긴 채로 둔다 —
- * 둘 다 켜면 겹친다. 앱 전체가 카메라 구멍만큼 내려가 있으면 이 줄도 같이 내려간다.
- * 미세 조정은 [offsetDp] 로 한다.
+ * 화면 맨 위에 딱 붙는다. 상태바가 있던 그 자리다 — 그래서 이 줄을 켜면 상태바는
+ * 늘 숨긴 채로 둔다. 앱 전체가 카메라 구멍만큼 내려가 있으면 이 줄도 같이 내려간다.
  *
- * 종이색 밝기를 보고 알약 배경과 글자색을 뒤집으므로 만화든 소설이든 읽힌다.
+ * 띠 전체를 종이색으로 칠한다. 만화 페이지가 화면 끝까지 차 있어도 글자가 묻히지 않는다.
  */
 @Composable
 fun ReaderStatusOverlay(
     title: String,
     page: Int,
     total: Int,
-    offsetDp: Float,
     paper: Color,
     modifier: Modifier = Modifier,
 ) {
@@ -63,8 +59,7 @@ fun ReaderStatusOverlay(
     }
 
     val onDark = paper.luminance() < 0.5f
-    val pill = if (onDark) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.62f)
-    val ink = if (onDark) Color(0xFFEDE6DC) else Color(0xFF221E1A)
+    val ink = if (onDark) Color(0xFFC9A46A) else Color(0xFF6B5330)
 
     val left = buildString {
         if (clock.isNotEmpty()) append(clock)
@@ -77,29 +72,35 @@ fun ReaderStatusOverlay(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = offsetDp.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .background(paper)
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (left.isNotEmpty()) Pill(left, pill, ink)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Pill(title, pill, ink)
+        if (left.isNotEmpty()) {
+            Text(
+                left,
+                color = ink,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+            )
         }
-        if (total > 0) Pill("${page + 1} / $total", pill, ink)
-    }
-}
-
-@Composable
-private fun Pill(text: String, background: Color, ink: Color, modifier: Modifier = Modifier) {
-    Surface(modifier, shape = RoundedCornerShape(6.dp), color = background) {
         Text(
-            text,
+            title,
             color = ink,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            modifier = Modifier.weight(1f),
         )
+        if (total > 0) {
+            Text(
+                "${page + 1} / $total",
+                color = ink,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+            )
+        }
     }
 }
 

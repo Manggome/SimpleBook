@@ -138,17 +138,7 @@ class Prefs(context: Context) {
     )
     val readerInfo: StateFlow<Boolean> = _readerInfo.asStateFlow()
 
-    /** 정보 줄을 안전 영역에서 얼마나 더 내릴지 (dp) */
-    private val _readerInfoOffset = MutableStateFlow(sp.getFloat("reader_info_offset", 2f))
-    val readerInfoOffset: StateFlow<Float> = _readerInfoOffset.asStateFlow()
-
     fun setReaderInfo(v: Boolean) = put("reader_info", v, _readerInfo)
-
-    fun setReaderInfoOffset(v: Float) {
-        val clamped = v.coerceIn(0f, 64f)
-        sp.edit().putFloat("reader_info_offset", clamped).apply()
-        _readerInfoOffset.value = clamped
-    }
 
     // ---------------------------------------------------------------- 화면
 
@@ -167,16 +157,23 @@ class Prefs(context: Context) {
     fun setAvoidCutout(v: Boolean) = put("avoid_cutout", v, _avoidCutout)
 
     /**
-     * 자동으로 잡힌 여백에 더해 얼마나 더 내릴지 (dp).
-     * 기기에 따라 가로에서는 구멍 여백이 0 으로 보고되기도 해서 손으로 맞출 길을 둔다.
+     * 화면을 얼마나 내릴지 (dp). 자동으로 잡힌 값에 더하는 것이 아니라 이 값 그대로다 —
+     * 0 이면 정말 0. 기기가 알려 주는 여백이 방향마다 제각각이라 세로/가로를 따로 둔다.
      */
-    private val _cutoutExtra = MutableStateFlow(sp.getFloat("cutout_extra", 0f))
-    val cutoutExtra: StateFlow<Float> = _cutoutExtra.asStateFlow()
+    private val _cutoutPortrait = MutableStateFlow(sp.getFloat("cutout_portrait", 0f))
+    val cutoutPortrait: StateFlow<Float> = _cutoutPortrait.asStateFlow()
 
-    fun setCutoutExtra(v: Float) {
-        val clamped = v.coerceIn(0f, 96f)
-        sp.edit().putFloat("cutout_extra", clamped).apply()
-        _cutoutExtra.value = clamped
+    private val _cutoutLandscape = MutableStateFlow(sp.getFloat("cutout_landscape", 0f))
+    val cutoutLandscape: StateFlow<Float> = _cutoutLandscape.asStateFlow()
+
+    fun cutoutInset(portrait: Boolean): Float =
+        if (portrait) _cutoutPortrait.value else _cutoutLandscape.value
+
+    fun setCutoutInset(portrait: Boolean, v: Float) {
+        val clamped = v.coerceIn(0f, 160f)
+        val key = if (portrait) "cutout_portrait" else "cutout_landscape"
+        sp.edit().putFloat(key, clamped).apply()
+        if (portrait) _cutoutPortrait.value = clamped else _cutoutLandscape.value = clamped
     }
 
     private val _orientation = MutableStateFlow(enum("orientation", OrientationMode.AUTO))

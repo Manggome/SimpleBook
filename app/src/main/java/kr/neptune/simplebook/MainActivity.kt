@@ -10,7 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -41,6 +40,7 @@ import kr.neptune.simplebook.core.ThemeMode
 import kr.neptune.simplebook.ui.ReaderScreen
 import kr.neptune.simplebook.ui.SettingsScreen
 import kr.neptune.simplebook.ui.ShelfScreen
+import kr.neptune.simplebook.ui.isPortrait
 import kr.neptune.simplebook.ui.MainViewModel
 import kr.neptune.simplebook.ui.SimpleBookTheme
 
@@ -124,7 +124,11 @@ class MainActivity : ComponentActivity() {
 
                 // 카메라 구멍을 피할 때는 그 자리를 검게 두고 앱을 그만큼 내린다
                 val avoidCutout by vm.prefs.avoidCutout.collectAsStateWithLifecycle()
-                val cutoutExtra by vm.prefs.cutoutExtra.collectAsStateWithLifecycle()
+                // 기기가 알려 주는 여백이 방향마다 달라서 세로/가로를 따로 저장해 두고
+                // 돌릴 때마다 해당하는 값을 그대로 쓴다
+                val cutoutPortrait by vm.prefs.cutoutPortrait.collectAsStateWithLifecycle()
+                val cutoutLandscape by vm.prefs.cutoutLandscape.collectAsStateWithLifecycle()
+                val cutoutInset = if (isPortrait()) cutoutPortrait else cutoutLandscape
 
                 Box(
                     Modifier
@@ -137,14 +141,10 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.background,
                         modifier = Modifier
                             .fillMaxSize()
+                            // 자동 여백에 더하지 않고 정한 값 그대로 내린다. 0 이면 정말 0
                             .then(
-                                if (avoidCutout) {
-                                    Modifier
-                                        .displayCutoutPadding()
-                                        .padding(top = cutoutExtra.dp)
-                                } else {
-                                    Modifier
-                                }
+                                if (avoidCutout) Modifier.padding(top = cutoutInset.dp)
+                                else Modifier
                             ),
                     ) {
                         val book = reading

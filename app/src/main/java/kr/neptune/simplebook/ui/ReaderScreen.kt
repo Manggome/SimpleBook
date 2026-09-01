@@ -191,7 +191,6 @@ fun ReaderScreen(
     val autoTurn by vm.prefs.autoTurn.collectAsStateWithLifecycle()
     val autoTurnSeconds by vm.prefs.autoTurnSeconds.collectAsStateWithLifecycle()
     val readerInfo by vm.prefs.readerInfo.collectAsStateWithLifecycle()
-    val readerInfoOffset by vm.prefs.readerInfoOffset.collectAsStateWithLifecycle()
     val readingFont = rememberReadingFont(useCustomFont)
 
     val direction = bookState.direction ?: defaultDirection
@@ -337,7 +336,6 @@ fun ReaderScreen(
                 title = item.title,
                 page = pageNumber.intValue,
                 total = totalPages,
-                offsetDp = readerInfoOffset,
                 paper = paper,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
@@ -1403,8 +1401,11 @@ private fun ReaderSettings(
     val immersive by prefs.immersive.collectAsStateWithLifecycle()
     val avoidCutout by prefs.avoidCutout.collectAsStateWithLifecycle()
     val readerInfo by prefs.readerInfo.collectAsStateWithLifecycle()
-    val readerInfoOffset by prefs.readerInfoOffset.collectAsStateWithLifecycle()
-    val cutoutExtra by prefs.cutoutExtra.collectAsStateWithLifecycle()
+    val cutoutPortrait by prefs.cutoutPortrait.collectAsStateWithLifecycle()
+    val cutoutLandscape by prefs.cutoutLandscape.collectAsStateWithLifecycle()
+    val portrait = isPortrait()
+    val cutoutInset = if (portrait) cutoutPortrait else cutoutLandscape
+    val detected = detectedCutoutDp()
     val systemBrightness by prefs.systemBrightness.collectAsStateWithLifecycle()
     val brightness by prefs.brightness.collectAsStateWithLifecycle()
 
@@ -1641,42 +1642,28 @@ private fun ReaderSettings(
                 if (avoidCutout) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("더 내리기", style = MaterialTheme.typography.bodyMedium)
-                            PanelHint("자동으로 잡힌 여백에 이만큼 더합니다")
+                            Text(
+                                if (portrait) "세로일 때 내리기" else "가로일 때 내리기",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            PanelHint("방향마다 따로 저장됩니다 · 감지값 ${detected}dp")
                         }
                         NumberStepper(
-                            value = cutoutExtra.toInt(),
-                            range = 0..96,
-                            onChange = { prefs.setCutoutExtra(it.toFloat()) },
+                            value = cutoutInset.toInt(),
+                            range = 0..160,
+                            onChange = { prefs.setCutoutInset(portrait, it.toFloat()) },
                             step = 2,
                             suffix = "dp",
-                            label = "더 내릴 만큼 (dp)",
+                            label = "화면 내릴 만큼 (dp)",
                         )
                     }
                 }
 
                 PanelToggle(
                     "정보 줄 보기",
-                    "시계 · 배터리 · 책 이름 · 쪽수를 상단바 자리에",
+                    "시계 · 배터리 · 책 이름 · 쪽수를 화면 맨 위에",
                     readerInfo,
                 ) { prefs.setReaderInfo(it) }
-                if (readerInfo) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "정보 줄 위치",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        NumberStepper(
-                            value = readerInfoOffset.toInt(),
-                            range = 0..96,
-                            onChange = { prefs.setReaderInfoOffset(it.toFloat()) },
-                            step = 2,
-                            suffix = "dp",
-                            label = "정보 줄 위치 (dp)",
-                        )
-                    }
-                }
 
                 Spacer(Modifier.height(4.dp))
                 PanelToggle(
