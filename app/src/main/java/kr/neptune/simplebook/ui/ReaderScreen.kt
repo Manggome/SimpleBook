@@ -46,6 +46,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
@@ -86,6 +88,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -181,6 +184,7 @@ fun ReaderScreen(
 
     var chromeVisible by remember(item.id) { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var settingsExpanded by remember { mutableStateOf(false) }
     var endPanelVisible by remember(item.id) { mutableStateOf(false) }
     var searchVisible by remember(item.id) { mutableStateOf(false) }
     var highlight by remember(item.id) { mutableStateOf<String?>(null) }
@@ -207,9 +211,13 @@ fun ReaderScreen(
     val ink = if (reader.isText) Color(textBackground.ink) else PageText
 
     // 뒤로가기는 열려 있는 것부터 하나씩 닫는다. 바로 책장으로 튕기면 답답하다
-    BackHandler(enabled = searchVisible || endPanelVisible || chromeVisible || jumpVisible) {
+    BackHandler(
+        enabled = searchVisible || endPanelVisible || chromeVisible ||
+            jumpVisible || settingsVisible
+    ) {
         when {
             jumpVisible -> jumpVisible = false
+            settingsVisible -> settingsVisible = false
             searchVisible -> searchVisible = false
             endPanelVisible -> endPanelVisible = false
             else -> chromeVisible = false
@@ -281,7 +289,7 @@ fun ReaderScreen(
         }
 
         ReaderChrome(
-            visible = chromeVisible,
+            visible = chromeVisible && !settingsVisible,
             title = item.title,
             page = pageNumber.intValue,
             total = totalPages,
@@ -336,10 +344,18 @@ fun ReaderScreen(
                 onStay = { endPanelVisible = false },
             )
         }
-    }
 
-    if (settingsVisible) {
-        ReaderSettings(
+        if (settingsVisible) {
+            // 막을 씌우지 않는다. 글자 크기를 조절하면서 본문이 어떻게 변하는지 봐야 한다
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures { settingsVisible = false } }
+            )
+            ReaderSettings(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                expanded = settingsExpanded,
+                onToggleExpand = { settingsExpanded = !settingsExpanded },
             direction = direction,
             spread = spreadMode,
             effect = pageEffect,
@@ -361,13 +377,14 @@ fun ReaderScreen(
             onSpread = { vm.setBookState(item.id) { s -> s.copy(spread = it) } },
             onEffect = { vm.prefs.setPageEffect(it) },
             onTextSize = { vm.prefs.setTextSize(it) },
-            onMakeDefault = {
-                vm.prefs.setDirection(direction)
-                vm.prefs.setSpread(spreadMode)
-                vm.say("지금 설정을 기본값으로 저장했습니다")
-            },
-            onDismiss = { settingsVisible = false },
-        )
+                onMakeDefault = {
+                    vm.prefs.setDirection(direction)
+                    vm.prefs.setSpread(spreadMode)
+                    vm.say("지금 설정을 기본값으로 저장했습니다")
+                },
+                onDismiss = { settingsVisible = false },
+            )
+        }
     }
 }
 
@@ -1253,9 +1270,18 @@ private fun EndPanel(
     }
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+/**
+ * 읽는 화면의 보기 설정.
+ *
+ * 화면을 다 덮는 시트로 두면 글자 크기나 자간을 조절할 때 정작 본문이 안 보인다.
+ * 그래서 기본은 아래쪽 절반만 차지하고, 안에서 스크롤한다. 항목이 많아 한눈에
+ * 보고 싶을 때를 위해 최대화 버튼을 뒀다.
+ */
 @Composable
 private fun ReaderSettings(
+    modifier: Modifier = Modifier,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
     direction: ReadDirection,
     spread: SpreadMode,
     effect: PageEffect,
@@ -1282,34 +1308,84 @@ private fun ReaderSettings(
 ) {
     val scrolling = direction == ReadDirection.VERTICAL
 
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp, 0.dp, 20.dp, 28.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (isText) {
-                // 소설에 "일본식/한국식" 은 와닿지 않는다. 먼저 방식부터 고르게 한다
-                Text("읽기 방식", style = MaterialTheme.typography.titleSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = scrolling,
-                        onClick = { if (!scrolling) onDirection(ReadDirection.VERTICAL) },
-                        label = { Text("스크롤") },
-                    )
-                    FilterChip(
-                        selected = !scrolling,
-                        onClick = { if (scrolling) onDirection(ReadDirection.LTR) },
-                        label = { Text("책") },
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (expanded) Modifier.fillMaxHeight() else Modifier.fillMaxHeight(0.46f))
+            // 패널 안을 눌렀을 때 바깥 닫기 감지기로 새어 나가지 않게 한다
+            .pointerInput(Unit) { detectTapGestures { } },
+        color = MaterialTheme.colorScheme.surface,
+        shape = if (expanded) RectangleShape
+        else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 12.dp,
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (expanded) Modifier.statusBarsPadding() else Modifier)
+                    .padding(start = 20.dp, end = 6.dp, top = 8.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "보기 설정",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onToggleExpand) {
+                    Icon(
+                        if (expanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                        contentDescription = if (expanded) "줄이기" else "최대화",
                     )
                 }
-                if (!scrolling) {
-                    Spacer(Modifier.height(4.dp))
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "닫기")
+                }
+            }
+            HorizontalDivider()
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(20.dp, 12.dp, 20.dp, 28.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (isText) {
+                    // 소설에 "일본식/한국식" 은 와닿지 않는다. 먼저 방식부터 고르게 한다
+                    Text("읽기 방식", style = MaterialTheme.typography.titleSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = scrolling,
+                            onClick = { if (!scrolling) onDirection(ReadDirection.VERTICAL) },
+                            label = { Text("스크롤") },
+                        )
+                        FilterChip(
+                            selected = !scrolling,
+                            onClick = { if (scrolling) onDirection(ReadDirection.LTR) },
+                            label = { Text("책") },
+                        )
+                    }
+                    if (!scrolling) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("넘기는 방향", style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(ReadDirection.LTR, ReadDirection.RTL).forEach { d ->
+                                FilterChip(
+                                    selected = d == direction,
+                                    onClick = { onDirection(d) },
+                                    label = { Text(d.label) },
+                                )
+                            }
+                        }
+                    }
+                } else {
                     Text("넘기는 방향", style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(ReadDirection.LTR, ReadDirection.RTL).forEach { d ->
+                        ReadDirection.entries.forEach { d ->
                             FilterChip(
                                 selected = d == direction,
                                 onClick = { onDirection(d) },
@@ -1317,156 +1393,145 @@ private fun ReaderSettings(
                             )
                         }
                     }
-                }
-            } else {
-                Text("넘기는 방향", style = MaterialTheme.typography.titleSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReadDirection.entries.forEach { d ->
-                        FilterChip(
-                            selected = d == direction,
-                            onClick = { onDirection(d) },
-                            label = { Text(d.label) },
-                        )
-                    }
-                }
-                Text(
-                    direction.hint,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-            Text("한 화면에 몇 쪽", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SpreadMode.entries.forEach { s ->
-                    FilterChip(
-                        selected = s == spread,
-                        onClick = { onSpread(s) },
-                        label = { Text(s.label) },
-                        enabled = !scrolling,
-                    )
-                }
-            }
-            Text(
-                if (scrolling) "스크롤에서는 항상 1쪽입니다"
-                else "자동: 화면 가로÷세로가 기준값 이상이면 2쪽 — 기본값에서는 폴드를 펴면 2쪽이 됩니다",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(8.dp))
-            Text("넘김 효과", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PageEffect.entries.forEach { e ->
-                    FilterChip(
-                        selected = e == effect,
-                        onClick = { onEffect(e) },
-                        label = { Text(e.label) },
-                        enabled = !scrolling,
-                    )
-                }
-            }
-
-            if (isText) {
-                Spacer(Modifier.height(8.dp))
-                Text("글자 크기  ${textSize.toInt()}sp", style = MaterialTheme.typography.titleSmall)
-                Slider(
-                    value = textSize,
-                    onValueChange = onTextSize,
-                    valueRange = 12f..34f,
-                    steps = 21,
-                )
-
-                Text(
-                    "자간  ${if (letterSpacing >= 0) "+" else ""}${"%.2f".format(letterSpacing)}em",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Slider(
-                    value = letterSpacing,
-                    onValueChange = onLetterSpacing,
-                    valueRange = -0.05f..0.30f,
-                    steps = 34,
-                )
-
-                Text(
-                    "줄 간격  ${"%.2f".format(lineSpacing)}배",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Slider(
-                    value = lineSpacing,
-                    onValueChange = onLineSpacing,
-                    valueRange = 1.0f..2.8f,
-                    steps = 35,
-                )
-
-                Spacer(Modifier.height(4.dp))
-                Text("종이색", style = MaterialTheme.typography.titleSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextBackground.entries.forEach { bg ->
-                        FilterChip(
-                            selected = bg == textBackground,
-                            onClick = { onTextBackground(bg) },
-                            label = { Text(bg.label) },
-                            leadingIcon = {
-                                Box(
-                                    Modifier
-                                        .size(16.dp)
-                                        .background(Color(bg.paper), RoundedCornerShape(3.dp))
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(4.dp))
-
-            Text("화면 회전", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OrientationMode.entries.forEach { o ->
-                    FilterChip(
-                        selected = o == orientation,
-                        onClick = { onOrientation(o) },
-                        label = { Text(o.label) },
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("시스템 밝기 사용", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "끄면 이 앱에서만 밝기를 따로 잡습니다",
+                        direction.hint,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = systemBrightness, onCheckedChange = onSystemBrightness)
-            }
-            if (!systemBrightness) {
-                Text(
-                    "밝기  ${(brightness * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Slider(
-                    value = brightness,
-                    onValueChange = onBrightness,
-                    valueRange = 0.05f..1f,
-                )
-            }
 
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "읽기 방식과 쪽 수는 이 책에만 적용됩니다. 나머지는 전체 공통입니다.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(onClick = onMakeDefault, modifier = Modifier.fillMaxWidth()) {
-                Text("모든 책의 기본값으로 저장")
+                Spacer(Modifier.height(8.dp))
+                Text("한 화면에 몇 쪽", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SpreadMode.entries.forEach { s ->
+                        FilterChip(
+                            selected = s == spread,
+                            onClick = { onSpread(s) },
+                            label = { Text(s.label) },
+                            enabled = !scrolling,
+                        )
+                    }
+                }
+                Text(
+                    if (scrolling) "스크롤에서는 항상 1쪽입니다"
+                    else "자동: 화면 가로÷세로가 기준값 이상이면 2쪽 — 기본값에서는 폴드를 펴면 2쪽이 됩니다",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(8.dp))
+                Text("넘김 효과", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PageEffect.entries.forEach { e ->
+                        FilterChip(
+                            selected = e == effect,
+                            onClick = { onEffect(e) },
+                            label = { Text(e.label) },
+                            enabled = !scrolling,
+                        )
+                    }
+                }
+
+                if (isText) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("글자 크기  ${textSize.toInt()}sp", style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = textSize,
+                        onValueChange = onTextSize,
+                        valueRange = 12f..34f,
+                        steps = 21,
+                    )
+
+                    Text(
+                        "자간  ${if (letterSpacing >= 0) "+" else ""}${"%.2f".format(letterSpacing)}em",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Slider(
+                        value = letterSpacing,
+                        onValueChange = onLetterSpacing,
+                        valueRange = -0.05f..0.30f,
+                        steps = 34,
+                    )
+
+                    Text(
+                        "줄 간격  ${"%.2f".format(lineSpacing)}배",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Slider(
+                        value = lineSpacing,
+                        onValueChange = onLineSpacing,
+                        valueRange = 1.0f..2.8f,
+                        steps = 35,
+                    )
+
+                    Spacer(Modifier.height(4.dp))
+                    Text("종이색", style = MaterialTheme.typography.titleSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextBackground.entries.forEach { bg ->
+                            FilterChip(
+                                selected = bg == textBackground,
+                                onClick = { onTextBackground(bg) },
+                                label = { Text(bg.label) },
+                                leadingIcon = {
+                                    Box(
+                                        Modifier
+                                            .size(16.dp)
+                                            .background(Color(bg.paper), RoundedCornerShape(3.dp))
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+
+                Text("화면 회전", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OrientationMode.entries.forEach { o ->
+                        FilterChip(
+                            selected = o == orientation,
+                            onClick = { onOrientation(o) },
+                            label = { Text(o.label) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("시스템 밝기 사용", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "끄면 이 앱에서만 밝기를 따로 잡습니다",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = systemBrightness, onCheckedChange = onSystemBrightness)
+                }
+                if (!systemBrightness) {
+                    Text(
+                        "밝기  ${(brightness * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Slider(
+                        value = brightness,
+                        onValueChange = onBrightness,
+                        valueRange = 0.05f..1f,
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "읽기 방식과 쪽 수는 이 책에만 적용됩니다. 나머지는 전체 공통입니다.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = onMakeDefault, modifier = Modifier.fillMaxWidth()) {
+                    Text("모든 책의 기본값으로 저장")
+                }
             }
         }
     }
