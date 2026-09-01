@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -228,6 +229,9 @@ fun ReaderScreen(vm: MainViewModel, item: ShelfItem, onClose: () -> Unit) {
 
 // ---------------------------------------------------------------- 이미지 책
 
+// canPan 이 있는 transformable 오버로드는 아직 실험 API 다.
+// 확대 중이 아닐 때 한 손가락 드래그를 페이저에 넘겨주려면 이것이 필요하다.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ImageContent(
     reader: ReaderState,
