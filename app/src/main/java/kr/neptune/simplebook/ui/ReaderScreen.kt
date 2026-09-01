@@ -253,6 +253,7 @@ fun ReaderScreen(
                         onTotal = { totalPages = it },
                         highlight = highlight,
                         onPages = { textStarts = it },
+                        paper = paper,
                         ink = ink,
                         letterSpacing = letterSpacing,
                         lineSpacing = lineSpacing,
@@ -273,6 +274,7 @@ fun ReaderScreen(
                         tapToTurn = tapToTurn,
                         onMenu = onMenu,
                         onTotal = { totalPages = it },
+                        paper = paper,
                     )
                 }
             }
@@ -440,6 +442,7 @@ private fun SpreadPager(
     nav: ReaderNav,
     tapToTurn: Boolean,
     onMenu: () -> Unit,
+    paper: Color,
     page: @Composable RowScope.(Int, Int) -> Unit,
 ) {
     if (spreads.isEmpty()) return
@@ -621,50 +624,10 @@ private fun SpreadPager(
             // 앞으로 갈 때는 지나간 장이 들리고, 뒤로 갈 때는 새 장이 펴진다
             val topIndex = if (progress > 0f) index else (index - 1).coerceAtLeast(0)
             val lifted = if (progress > 0f) progress else 1f + progress
-            TurningPage(lifted, rtl) {
+            CurlingPage(lifted = lifted, rtl = rtl, paper = paper) {
                 Spread(spreads[topIndex.coerceIn(0, last)], rtl, scale, offset, page)
             }
         }
-    }
-}
-
-/**
- * 넘어가는 중인 한 장.
- *
- * 진짜 종이처럼 휘게 하려면 비트맵을 격자로 변형해야 하는데(drawBitmapMesh) 비용이 크다.
- * 여기서는 3D 회전에 원통형 명암을 얹어 휘어 보이게 한다.
- */
-@Composable
-private fun TurningPage(lifted: Float, rtl: Boolean, content: @Composable () -> Unit) {
-    val t = lifted.coerceIn(0f, 1f)
-    // 처음에 훅 들리고 끝에서 느려진다. 등속으로 돌리면 뻣뻣해 보인다
-    val eased = 1f - (1f - t) * (1f - t)
-    val sign = if (rtl) 1f else -1f
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                // 책등이 축이다. 우철이면 오른쪽
-                transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
-                rotationY = sign * 92f * eased
-                rotationZ = sign * -1.6f * t
-                cameraDistance = 14f * density
-            }
-    ) {
-        content()
-        // 책등 쪽이 가장 어둡고 가운데에 반사가 남는다
-        val shades = listOf(
-            Color.Black.copy(alpha = 0.50f * t),
-            Color.Black.copy(alpha = 0.06f * t),
-            Color.White.copy(alpha = 0.12f * t),
-            Color.Black.copy(alpha = 0.26f * t),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Brush.horizontalGradient(if (rtl) shades.reversed() else shades))
-        )
     }
 }
 
@@ -734,6 +697,7 @@ private fun ImageContent(
     tapToTurn: Boolean,
     onMenu: () -> Unit,
     onTotal: (Int) -> Unit,
+    paper: Color,
 ) {
     val count = reader.pageCount
     LaunchedEffect(count) { onTotal(count) }
@@ -784,6 +748,7 @@ private fun ImageContent(
         nav = nav,
         tapToTurn = tapToTurn,
         onMenu = onMenu,
+        paper = paper,
     ) { pageIndex, columns ->
         PageImage(
             reader = reader,
@@ -890,6 +855,7 @@ private fun TextContent(
     onTotal: (Int) -> Unit,
     highlight: String?,
     onPages: (List<Int>) -> Unit,
+    paper: Color,
     ink: Color,
     letterSpacing: Float,
     lineSpacing: Float,
@@ -978,6 +944,7 @@ private fun TextContent(
         nav = nav,
         tapToTurn = tapToTurn,
         onMenu = onMenu,
+        paper = paper,
     ) { pageIndex, _ ->
         TextPage(
             text = text,
