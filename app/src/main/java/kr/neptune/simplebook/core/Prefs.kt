@@ -95,6 +95,18 @@ class Prefs(context: Context) {
         _directions.value = _directions.value + (group to v)
     }
 
+    /** 형식별 기본값을 처음 상태로 */
+    fun resetFormatDefaults() {
+        val editor = sp.edit()
+        FormatGroup.entries.forEach {
+            editor.remove("direction_" + it.key).remove("spread_" + it.key)
+        }
+        // 예전 단일 설정이 남아 있으면 그것까지 지워야 정말 처음으로 돌아간다
+        editor.remove("direction").remove("spread").apply()
+        _directions.value = FormatGroup.entries.associateWith { it.defaultDirection }
+        _spreads.value = FormatGroup.entries.associateWith { it.defaultSpread }
+    }
+
     fun setSpread(group: FormatGroup, v: SpreadMode) {
         sp.edit().putString("spread_" + group.key, v.name).apply()
         _spreads.value = _spreads.value + (group to v)

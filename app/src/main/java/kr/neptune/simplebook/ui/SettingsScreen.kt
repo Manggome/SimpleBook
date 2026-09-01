@@ -54,8 +54,6 @@ import kr.neptune.simplebook.core.Fonts
 import kr.neptune.simplebook.core.FormatGroup
 import kr.neptune.simplebook.core.OrientationMode
 import kr.neptune.simplebook.core.PageEffect
-import kr.neptune.simplebook.core.ReadDirection
-import kr.neptune.simplebook.core.SpreadMode
 import kr.neptune.simplebook.core.TextBackground
 import kr.neptune.simplebook.core.ThemeMode
 import kotlin.math.roundToInt
@@ -80,9 +78,6 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     // 읽기
     val directions by prefs.directions.collectAsStateWithLifecycle()
     val spreads by prefs.spreads.collectAsStateWithLifecycle()
-    var group by remember { mutableStateOf(FormatGroup.COMIC) }
-    val direction = directions[group] ?: group.defaultDirection
-    val spread = spreads[group] ?: group.defaultSpread
     val threshold by prefs.spreadThreshold.collectAsStateWithLifecycle()
     val coverAlone by prefs.coverAlone.collectAsStateWithLifecycle()
     val pageEffect by prefs.pageEffect.collectAsStateWithLifecycle()
@@ -165,59 +160,49 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
             // ---------------------------------------------------------- 읽기
             SectionTitle("읽기")
+
+            // 넘기는 방향과 쪽 수는 책을 펴 놓고 정하는 편이 훨씬 자연스럽다.
+            // 여기에 형식 고르는 칩까지 두면 그 아래 전부가 형식별인 것처럼 보인다.
             Caption(
-                "기본 보기 방식은 형식마다 따로 잡습니다. 만화는 우철에 2쪽, 소설은 좌철에 " +
-                    "1쪽처럼 성격이 달라서입니다. 책 하나만 다르게 두려면 읽는 화면의 ⚙︎ 에서 바꾸세요."
+                "넘기는 방향과 한 화면에 몇 쪽 볼지는 책을 펴고 ⚙︎ 에서 정합니다. " +
+                    "거기서 \"기본값으로 저장\" 을 누르면 같은 형식의 책에 모두 적용됩니다."
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FormatGroup.entries.forEach { g ->
-                    FilterChip(
-                        selected = g == group,
-                        onClick = { group = g },
-                        label = { Text(g.label) },
+            Spacer(Modifier.height(4.dp))
+            FormatGroup.entries.forEach { g ->
+                val d = directions[g] ?: g.defaultDirection
+                val m = spreads[g] ?: g.defaultSpread
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        g.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        d.label + " · " + m.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(onClick = { prefs.resetFormatDefaults() }) {
+                Text("형식별 기본값 되돌리기")
             }
 
-            Spacer(Modifier.height(8.dp))
-            Text("넘기는 방향", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReadDirection.entries.forEach { d ->
-                    FilterChip(
-                        selected = d == direction,
-                        onClick = { prefs.setDirection(group, d) },
-                        label = { Text(d.label) },
-                    )
-                }
-            }
-            Caption(direction.hint)
-
-            Spacer(Modifier.height(8.dp))
-            Text("한 화면에 몇 쪽", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SpreadMode.entries.forEach { m ->
-                    FilterChip(
-                        selected = m == spread,
-                        onClick = { prefs.setSpread(group, m) },
-                        label = { Text(m.label) },
-                    )
-                }
-            }
-            if (spread == SpreadMode.AUTO) {
-                Text(
-                    "2쪽으로 바뀌는 기준  가로÷세로 ${"%.2f".format(threshold)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Slider(
-                    value = threshold,
-                    onValueChange = { prefs.setSpreadThreshold((it * 20).roundToInt() / 20f) },
-                    valueRange = 0.7f..1.6f,
-                )
-                Caption(
-                    "낮출수록 쉽게 2쪽이 됩니다. 기본값 0.85 는 폴드를 펴면 세로로 들든 " +
-                        "가로로 들든 2쪽이 되는 지점입니다."
-                )
-            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "2쪽으로 바뀌는 기준  가로÷세로 ${"%.2f".format(threshold)}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = threshold,
+                onValueChange = { prefs.setSpreadThreshold((it * 20).roundToInt() / 20f) },
+                valueRange = 0.7f..1.6f,
+            )
+            Caption(
+                "\"자동\" 일 때만 쓰입니다. 낮출수록 쉽게 2쪽이 됩니다. 기본값 0.85 는 " +
+                    "폴드를 펴면 세로로 들든 가로로 들든 2쪽이 되는 지점입니다."
+            )
 
             Spacer(Modifier.height(8.dp))
             Text("넘김 효과", style = MaterialTheme.typography.bodyMedium)
