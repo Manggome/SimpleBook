@@ -1,10 +1,12 @@
 package kr.neptune.simplebook.ui
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +35,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -57,6 +64,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -111,6 +119,8 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     var menuFor by remember { mutableStateOf<ShelfItem?>(null) }
     var coverTarget by remember { mutableStateOf<ShelfItem?>(null) }
     var pickInside by remember { mutableStateOf<ShelfItem?>(null) }
+    var selectMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
     val coverCandidates by vm.coverCandidates.collectAsStateWithLifecycle()
     val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
     var newFolderOpen by remember { mutableStateOf(false) }
@@ -153,6 +163,20 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
     }
 
     val sortedItems = remember(items, sortMode, states) { vm.sorted(items, sortMode) }
+
+    // 폴더를 옮겨 다니면 고른 것이 남아 있어 봐야 헷갈린다
+    LaunchedEffect(path) {
+        selectMode = false
+        selected = emptySet()
+    }
+    fun exitSelect() {
+        selectMode = false
+        selected = emptySet()
+    }
+    fun toggle(item: ShelfItem) {
+        selected = if (selected.contains(item.id)) selected - item.id else selected + item.id
+    }
+    BackHandler(enabled = selectMode) { exitSelect() }
     val here = path.lastOrNull()
     val sections = remember(sortedItems, groupByKind) { sectionsOf(sortedItems, groupByKind) }
     // 앱 폴더 안에서도 등록과 폴더 만들기를 할 수 있어야 한다
@@ -163,72 +187,116 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    if (path.isNotEmpty()) {
-                        IconButton(onClick = { vm.back() }) {
+                    when {
+                        selectMode -> IconButton(onClick = { exitSelect() }) {
+                            Icon(Icons.Default.Close, contentDescription = "선택 끝내기")
+                        }
+
+                        path.isNotEmpty() -> IconButton(onClick = { vm.back() }) {
                             Icon(Icons.Default.ArrowBack, contentDescription = "뒤로")
                         }
                     }
                 },
                 title = {
-                    Column {
-                        Text(
-                            here?.title ?: "책장",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (path.size > 1) {
-                            Text(
-                                path.dropLast(1).joinToString(" / ") { it.title },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { vm.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "새로고침")
-                    }
-                    Box {
-                        IconButton(onClick = { sortOpen = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "정렬")
-                        }
-                        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                            SortMode.entries.forEach { mode ->
-                                DropdownMenuItem(
-                                    text = { Text(mode.label) },
-                                    leadingIcon = {
-                                        if (mode == sortMode) Icon(Icons.Default.Check, null)
-                                        else Spacer(Modifier.size(24.dp))
-                                    },
-                                    onClick = {
-                                        vm.prefs.setSortMode(mode)
-                                        sortOpen = false
-                                    },
+                    if (selectMode) {
+                        Text("${selected.size}개 선택")
+                    } else {
+                            Column {
+                                Text(
+                                    here?.title ?: "책장",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
+                                if (path.size > 1) {
+                                    Text(
+                                        path.dropLast(1).joinToString(" / ") { it.title },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
-                    }
-                    IconButton(onClick = {
-                        vm.prefs.setViewMode(
-                            if (viewMode == ViewMode.GRID) ViewMode.LIST else ViewMode.GRID
-                        )
-                    }) {
-                        Icon(
-                            if (viewMode == ViewMode.GRID) Icons.Default.ViewList else Icons.Default.GridView,
-                            contentDescription = "보기 전환",
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "설정")
+                    },
+                    actions = {
+                        if (selectMode) {
+                            val books = sortedItems.filterNot { it.isFolder }
+                            val allPicked = books.isNotEmpty() && selected.size >= books.size
+                            IconButton(onClick = {
+                                selected = if (allPicked) emptySet() else books.map { it.id }.toSet()
+                            }) {
+                                Icon(
+                                    Icons.Default.SelectAll,
+                                    contentDescription = if (allPicked) "전체 해제" else "전체 선택",
+                                )
+                            }
+                        } else {
+                        IconButton(onClick = { selectMode = true }) {
+                            Icon(Icons.Default.Checklist, contentDescription = "선택")
+                        }
+                        IconButton(onClick = { vm.refresh() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "새로고침")
+                        }
+                        Box {
+                            IconButton(onClick = { sortOpen = true }) {
+                                Icon(Icons.Default.Sort, contentDescription = "정렬")
+                            }
+                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                                SortMode.entries.forEach { mode ->
+                                    DropdownMenuItem(
+                                        text = { Text(mode.label) },
+                                        leadingIcon = {
+                                            if (mode == sortMode) Icon(Icons.Default.Check, null)
+                                            else Spacer(Modifier.size(24.dp))
+                                        },
+                                        onClick = {
+                                            vm.prefs.setSortMode(mode)
+                                            sortOpen = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = {
+                            vm.prefs.setViewMode(
+                                if (viewMode == ViewMode.GRID) ViewMode.LIST else ViewMode.GRID
+                            )
+                        }) {
+                            Icon(
+                                if (viewMode == ViewMode.GRID) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = "보기 전환",
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "설정")
+                        }
                     }
                 },
             )
         },
+        bottomBar = {
+            if (selectMode) {
+                BottomAppBar {
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        if (selected.isEmpty()) "책을 골라 주세요" else "${selected.size}개",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            vm.markUnreadAll(sortedItems.filter { selected.contains(it.id) })
+                            exitSelect()
+                        },
+                        enabled = selected.isNotEmpty(),
+                    ) { Text("안 읽음으로") }
+                    Spacer(Modifier.width(12.dp))
+                }
+            }
+        },
         floatingActionButton = {
-            if (canAdd) {
+            if (canAdd && !selectMode) {
                 Box {
                     FloatingActionButton(
                         onClick = { addOpen = true },
@@ -306,8 +374,18 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                                 item = item,
                                 state = states[item.id],
                                 revision = coverRevision,
-                                onClick = { onItemClick(vm, item) },
-                                onLongClick = { menuFor = item },
+                                selectMode = selectMode,
+                                picked = selected.contains(item.id),
+                                onClick = {
+                                    if (selectMode) toggle(item) else onItemClick(vm, item)
+                                },
+                                onLongClick = {
+                                    if (selectMode) {
+                                        toggle(item)
+                                    } else {
+                                        menuFor = item
+                                    }
+                                },
                             )
                         }
                     }
@@ -329,8 +407,18 @@ fun ShelfScreen(vm: MainViewModel, onOpenSettings: () -> Unit) {
                                 item = item,
                                 state = states[item.id],
                                 revision = coverRevision,
-                                onClick = { onItemClick(vm, item) },
-                                onLongClick = { menuFor = item },
+                                selectMode = selectMode,
+                                picked = selected.contains(item.id),
+                                onClick = {
+                                    if (selectMode) toggle(item) else onItemClick(vm, item)
+                                },
+                                onLongClick = {
+                                    if (selectMode) {
+                                        toggle(item)
+                                    } else {
+                                        menuFor = item
+                                    }
+                                },
                             )
                         }
                     }
@@ -532,6 +620,8 @@ private fun GridCell(
     item: ShelfItem,
     state: BookState?,
     revision: Int,
+    selectMode: Boolean,
+    picked: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -545,7 +635,14 @@ private fun GridCell(
                 .fillMaxWidth()
                 .aspectRatio(0.7f)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .then(
+                    if (picked) Modifier.border(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(8.dp),
+                    ) else Modifier
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.fillMaxSize().alpha(dim), contentAlignment = Alignment.Center) {
@@ -555,6 +652,22 @@ private fun GridCell(
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (selectMode) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            if (picked) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                            else Color(0x55000000)
+                        )
+                )
+                Icon(
+                    if (picked) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (picked) MaterialTheme.colorScheme.primary else Color(0xCCFFFFFF),
+                    modifier = Modifier.align(Alignment.Center).size(34.dp),
                 )
             }
             KindBadge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
@@ -593,6 +706,8 @@ private fun ListRow(
     item: ShelfItem,
     state: BookState?,
     revision: Int,
+    selectMode: Boolean,
+    picked: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -600,10 +715,23 @@ private fun ListRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (picked) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                else Color.Transparent
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selectMode) {
+            Icon(
+                if (picked) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                contentDescription = null,
+                tint = if (picked) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(end = 8.dp).size(22.dp),
+            )
+        }
         Box(
             Modifier
                 .width(44.dp)

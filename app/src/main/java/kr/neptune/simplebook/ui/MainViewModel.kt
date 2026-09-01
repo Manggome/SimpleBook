@@ -260,6 +260,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBookState(id: String, block: (BookState) -> BookState) = store.updateState(id, block)
 
+    /** 고른 것들을 한꺼번에 안 읽음으로. 폴더는 읽기 상태가 없으니 건너뛴다 */
+    fun markUnreadAll(items: List<ShelfItem>) {
+        val books = items.filterNot { it.isFolder }
+        if (books.isEmpty()) {
+            _notice.value = "책을 고른 다음에 눌러 주세요"
+            return
+        }
+        books.forEach { store.clearState(it.id) }
+        _notice.value = "${books.size}권을 안 읽음으로 표시했습니다"
+    }
+
     fun markUnread(item: ShelfItem) {
         store.clearState(item.id)
         _notice.value = "${item.title} 을(를) 안 읽음으로 표시했습니다"
