@@ -146,6 +146,12 @@ class ReaderNav {
      * 없도록, 그 탭은 멈추는 데만 쓴다.
      */
     var interceptTap: () -> Boolean = { false }
+
+    /**
+     * 마지막으로 손가락이 닿은 세로 위치 (0 위 ~ 1 아래).
+     * 종이가 여기서부터 들려 기울어진 채로 넘어간다.
+     */
+    var grabY: Float = 0.72f
 }
 
 @Composable
@@ -479,6 +485,7 @@ private fun Modifier.readerTaps(
 ): Modifier = pointerInput(tapToTurn, rtl) {
     detectTapGestures { offset ->
         if (nav.interceptTap()) return@detectTapGestures
+        if (size.height > 0) nav.grabY = (offset.y / size.height).coerceIn(0f, 1f)
         val x = if (size.width > 0) offset.x / size.width else 0.5f
         val left = x < TAP_EDGE
         val right = x > 1f - TAP_EDGE
@@ -669,7 +676,12 @@ private fun SpreadPager(
             if (zoomed) return@pointerInput
             var pushedPastEnd = false
             detectHorizontalDragGestures(
-                onDragStart = { pushedPastEnd = false },
+                onDragStart = { start ->
+                    pushedPastEnd = false
+                    if (size.height > 0) {
+                        nav.grabY = (start.y / size.height).coerceIn(0f, 1f)
+                    }
+                },
                 onDragEnd = {
                     scope.launch {
                         when {
@@ -716,7 +728,7 @@ private fun SpreadPager(
             // 앞으로 갈 때는 지나간 장이 들리고, 뒤로 갈 때는 새 장이 펴진다
             val topIndex = if (progress > 0f) index else (index - 1).coerceAtLeast(0)
             val lifted = if (progress > 0f) progress else 1f + progress
-            CurlingPage(lifted = lifted, rtl = rtl, paper = paper) {
+            CurlingPage(lifted = lifted, rtl = rtl, grabY = nav.grabY, paper = paper) {
                 Spread(spreads[topIndex.coerceIn(0, last)], rtl, scale, offset, page)
             }
         }
@@ -1468,6 +1480,35 @@ private fun ReaderSettings(
                     .padding(20.dp, 12.dp, 20.dp, 28.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // 읽다가 제일 자주 켜고 끄는 것이라 맨 위에 둔다
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("자동 넘기기", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "넘어가는 중에 화면을 누르면 멈춥니다",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = autoTurn, onCheckedChange = onAutoTurn)
+                }
+                if (autoTurn) {
+                    Text(
+                        "${autoTurnSeconds.toInt()}초에 한 번",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Slider(
+                        value = autoTurnSeconds,
+                        onValueChange = onAutoTurnSeconds,
+                        valueRange = 2f..60f,
+                        steps = 57,
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+
                 if (isText) {
                     // 소설에 "일본식/한국식" 은 와닿지 않는다. 먼저 방식부터 고르게 한다
                     Text("읽기 방식", style = MaterialTheme.typography.titleSmall)
@@ -1602,31 +1643,6 @@ private fun ReaderSettings(
                 HorizontalDivider()
                 Spacer(Modifier.height(4.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("자동 넘기기", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "넘어가는 중에 화면을 누르면 멈춥니다",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = autoTurn, onCheckedChange = onAutoTurn)
-                }
-                if (autoTurn) {
-                    Text(
-                        "${autoTurnSeconds.toInt()}초에 한 번",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Slider(
-                        value = autoTurnSeconds,
-                        onValueChange = onAutoTurnSeconds,
-                        valueRange = 2f..60f,
-                        steps = 57,
-                    )
-                }
-
-                Spacer(Modifier.height(8.dp))
                 Text("화면 회전", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OrientationMode.entries.forEach { o ->
