@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,16 +43,23 @@ data class ReaderStatus(
  *
  * 상태바를 숨기고 읽으면 시계와 배터리를 볼 수 없어서 필요하다.
  * 화면 맨 위에 딱 붙는다. 상태바가 있던 그 자리다 — 그래서 이 줄을 켜면 상태바는
- * 늘 숨긴 채로 둔다. 앱 전체가 카메라 구멍만큼 내려가 있으면 이 줄도 같이 내려간다.
+ * 늘 숨긴 채로 둔다.
  *
- * 띠 전체를 종이색으로 칠한다. 만화 페이지가 화면 끝까지 차 있어도 글자가 묻히지 않는다.
+ * 바탕은 이 줄이 놓인 자리의 색([backdrop])을 그대로 쓴다. 카메라 구멍을 피해
+ * 화면을 내렸으면 그 자리는 검정이므로 검정으로 칠해 한 덩어리로 보이게 하고,
+ * 아니면 종이색으로 칠해 페이지에 녹아들게 한다. 종이색으로 고정하면 검은 띠 위에
+ * 회색 띠가 하나 더 얹혀 세 겹으로 보인다.
+ *
+ * [minHeightDp] 는 카메라 구멍 자리의 높이다. 그만큼 키워 가운데에 글자를 놓으면
+ * 검은 띠와 정보 줄이 정확히 겹친다.
  */
 @Composable
 fun ReaderStatusOverlay(
     title: String,
     page: Int,
     total: Int,
-    paper: Color,
+    backdrop: Color,
+    minHeightDp: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -66,7 +74,7 @@ fun ReaderStatusOverlay(
         }
     }
 
-    val onDark = paper.luminance() < 0.5f
+    val onDark = backdrop.luminance() < 0.5f
     val ink = if (onDark) Color(0xFFC9A46A) else Color(0xFF6B5330)
 
     val left = buildString {
@@ -80,7 +88,8 @@ fun ReaderStatusOverlay(
     Row(
         modifier
             .fillMaxWidth()
-            .background(paper)
+            .background(backdrop)
+            .heightIn(min = minHeightDp.dp)
             .padding(horizontal = 10.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,

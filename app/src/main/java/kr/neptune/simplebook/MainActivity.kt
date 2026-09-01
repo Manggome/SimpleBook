@@ -165,7 +165,10 @@ class MainActivity : ComponentActivity() {
                             title = it.title,
                             page = it.page,
                             total = it.total,
-                            paper = it.paper,
+                            // 구멍을 피해 내린 자리는 검정이다. 거기 놓이면 검정으로 칠해야
+                            // 검은 띠와 한 덩어리로 보인다
+                            backdrop = if (avoidCutout) Color.Black else it.paper,
+                            minHeightDp = if (avoidCutout) cutoutInset else 0f,
                             modifier = Modifier.align(Alignment.TopCenter),
                         )
                     }
