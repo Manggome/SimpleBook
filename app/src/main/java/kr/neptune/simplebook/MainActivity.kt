@@ -48,8 +48,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // 창을 카메라 구멍 아래까지 펼친다. 구멍을 피할지 말지는 앱이 직접 정한다
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        // 창을 카메라 구멍 아래까지 펼친다. 구멍을 피할지 말지는 앱이 직접 정한다.
+        // SHORT_EDGES 는 가로로 돌리면 구멍이 긴 변에 오면서 시스템이 창을 물려 버려
+        // 앱이 손댈 여지가 없어진다. ALWAYS 는 어느 방향이든 창을 끝까지 펼친다.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes = window.attributes.apply {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES

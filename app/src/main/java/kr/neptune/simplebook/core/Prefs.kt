@@ -127,22 +127,28 @@ class Prefs(context: Context) {
 
     // ---------------------------------------------------------------- 읽을 때 화면 위 표시
 
-    private val _overlayClock = MutableStateFlow(sp.getBoolean("overlay_clock", false))
-    val overlayClock: StateFlow<Boolean> = _overlayClock.asStateFlow()
+    /** 시계 · 배터리 · 책 이름 · 쪽수를 한꺼번에 켜고 끈다 */
+    private val _readerInfo = MutableStateFlow(
+        sp.getBoolean(
+            "reader_info",
+            // 예전에는 넷을 따로 켰다. 하나라도 켜 뒀으면 이어받는다
+            sp.getBoolean("overlay_clock", false) || sp.getBoolean("overlay_battery", false) ||
+                sp.getBoolean("overlay_title", false) || sp.getBoolean("overlay_page", false),
+        )
+    )
+    val readerInfo: StateFlow<Boolean> = _readerInfo.asStateFlow()
 
-    private val _overlayBattery = MutableStateFlow(sp.getBoolean("overlay_battery", false))
-    val overlayBattery: StateFlow<Boolean> = _overlayBattery.asStateFlow()
+    /** 정보 줄을 안전 영역에서 얼마나 더 내릴지 (dp) */
+    private val _readerInfoOffset = MutableStateFlow(sp.getFloat("reader_info_offset", 2f))
+    val readerInfoOffset: StateFlow<Float> = _readerInfoOffset.asStateFlow()
 
-    private val _overlayTitle = MutableStateFlow(sp.getBoolean("overlay_title", false))
-    val overlayTitle: StateFlow<Boolean> = _overlayTitle.asStateFlow()
+    fun setReaderInfo(v: Boolean) = put("reader_info", v, _readerInfo)
 
-    private val _overlayPage = MutableStateFlow(sp.getBoolean("overlay_page", false))
-    val overlayPage: StateFlow<Boolean> = _overlayPage.asStateFlow()
-
-    fun setOverlayClock(v: Boolean) = put("overlay_clock", v, _overlayClock)
-    fun setOverlayBattery(v: Boolean) = put("overlay_battery", v, _overlayBattery)
-    fun setOverlayTitle(v: Boolean) = put("overlay_title", v, _overlayTitle)
-    fun setOverlayPage(v: Boolean) = put("overlay_page", v, _overlayPage)
+    fun setReaderInfoOffset(v: Float) {
+        val clamped = v.coerceIn(0f, 64f)
+        sp.edit().putFloat("reader_info_offset", clamped).apply()
+        _readerInfoOffset.value = clamped
+    }
 
     // ---------------------------------------------------------------- 화면
 

@@ -8,10 +8,13 @@ import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,9 +37,12 @@ import kotlinx.coroutines.delay
 import java.util.Date
 
 /**
- * 읽는 동안 화면 맨 위에 얇게 얹는 정보 줄.
+ * 읽는 동안 화면 맨 위에 얇게 얹는 정보 줄. 시계 · 배터리 · 책 이름 · 쪽수.
  *
- * 상태바를 숨기고 읽으면 시계와 배터리를 볼 수 없어서, 필요한 것만 골라 여기에 띄운다.
+ * 상태바를 숨기고 읽으면 시계와 배터리를 볼 수 없어서 필요하다.
+ * 위쪽 여백은 safeDrawing 을 따라간다 — 상태바를 숨겼으면 카메라 구멍 바로 아래,
+ * 켜 두었으면 상태바 바로 아래에 붙는다. 거기서 [offsetDp] 만큼 더 내릴 수 있다.
+ *
  * 종이색 밝기를 보고 알약 배경과 글자색을 뒤집으므로 만화든 소설이든 읽힌다.
  */
 @Composable
@@ -44,24 +50,18 @@ fun ReaderStatusOverlay(
     title: String,
     page: Int,
     total: Int,
-    showClock: Boolean,
-    showBattery: Boolean,
-    showTitle: Boolean,
-    showPage: Boolean,
+    offsetDp: Float,
     paper: Color,
     modifier: Modifier = Modifier,
 ) {
-    if (!showClock && !showBattery && !showTitle && !showPage) return
-
     val context = LocalContext.current
     var clock by remember { mutableStateOf("") }
     var battery by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(showClock, showBattery) {
-        if (!showClock && !showBattery) return@LaunchedEffect
+    LaunchedEffect(Unit) {
         while (true) {
-            if (showClock) clock = DateFormat.getTimeFormat(context).format(Date())
-            if (showBattery) battery = batteryPercent(context)
+            clock = DateFormat.getTimeFormat(context).format(Date())
+            battery = batteryPercent(context)
             delay(20_000)
         }
     }
@@ -71,8 +71,8 @@ fun ReaderStatusOverlay(
     val ink = if (onDark) Color(0xFFEDE6DC) else Color(0xFF221E1A)
 
     val left = buildString {
-        if (showClock && clock.isNotEmpty()) append(clock)
-        if (showBattery && battery >= 0) {
+        if (clock.isNotEmpty()) append(clock)
+        if (battery >= 0) {
             if (isNotEmpty()) append("   ")
             append(battery).append('%')
         }
@@ -81,17 +81,16 @@ fun ReaderStatusOverlay(
     Row(
         modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .displayCutoutPadding()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            .padding(start = 12.dp, end = 12.dp, top = offsetDp.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (left.isNotEmpty()) Pill(left, pill, ink)
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            if (showTitle) Pill(title, pill, ink)
+            Pill(title, pill, ink)
         }
-        if (showPage && total > 0) Pill("${page + 1} / $total", pill, ink)
+        if (total > 0) Pill("${page + 1} / $total", pill, ink)
     }
 }
 
