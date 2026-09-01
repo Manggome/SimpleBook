@@ -91,6 +91,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val fontRevision by Fonts.revision.collectAsStateWithLifecycle()
     val groupByKind by vm.prefs.groupByKind.collectAsStateWithLifecycle()
     val theme by vm.prefs.theme.collectAsStateWithLifecycle()
+    val avoidCutout by vm.prefs.avoidCutout.collectAsStateWithLifecycle()
     val autoTurn by vm.prefs.autoTurn.collectAsStateWithLifecycle()
     val autoTurnSeconds by vm.prefs.autoTurnSeconds.collectAsStateWithLifecycle()
     val overlayClock by vm.prefs.overlayClock.collectAsStateWithLifecycle()
@@ -358,6 +359,13 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
             Caption("읽는 화면은 테마와 별개입니다. 만화는 검은 바탕, 소설은 고른 종이색.")
+
+            Spacer(Modifier.height(8.dp))
+            ToggleRow(
+                "카메라 구멍 피하기",
+                "구멍이 파고든 만큼 화면을 내리고 그 자리는 검게 둡니다",
+                avoidCutout,
+            ) { vm.prefs.setAvoidCutout(it) }
 
             Spacer(Modifier.height(8.dp))
             Text("회전", style = MaterialTheme.typography.bodyMedium)

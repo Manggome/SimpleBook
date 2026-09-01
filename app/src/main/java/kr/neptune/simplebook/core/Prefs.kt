@@ -151,6 +151,15 @@ class Prefs(context: Context) {
 
     fun setTheme(v: ThemeMode) = put("theme", v, _theme)
 
+    /**
+     * 켜면 카메라 구멍이 파고든 만큼 화면 전체를 내린다.
+     * 구멍 자리는 검게 남아서 그림이나 글자를 가리지 않는다.
+     */
+    private val _avoidCutout = MutableStateFlow(sp.getBoolean("avoid_cutout", false))
+    val avoidCutout: StateFlow<Boolean> = _avoidCutout.asStateFlow()
+
+    fun setAvoidCutout(v: Boolean) = put("avoid_cutout", v, _avoidCutout)
+
     private val _orientation = MutableStateFlow(enum("orientation", OrientationMode.AUTO))
     val orientation: StateFlow<OrientationMode> = _orientation.asStateFlow()
 

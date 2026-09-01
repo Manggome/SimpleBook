@@ -194,6 +194,7 @@ fun ReaderScreen(
     val overlayBattery by vm.prefs.overlayBattery.collectAsStateWithLifecycle()
     val overlayTitle by vm.prefs.overlayTitle.collectAsStateWithLifecycle()
     val overlayPage by vm.prefs.overlayPage.collectAsStateWithLifecycle()
+    val avoidCutout by vm.prefs.avoidCutout.collectAsStateWithLifecycle()
     val readingFont = rememberReadingFont(useCustomFont)
 
     val direction = bookState.direction ?: defaultDirection
@@ -439,6 +440,8 @@ fun ReaderScreen(
                 onTextBackground = { vm.prefs.setTextBackground(it) },
                 onLetterSpacing = { vm.prefs.setLetterSpacing(it) },
                 onLineSpacing = { vm.prefs.setLineSpacing(it) },
+                avoidCutout = avoidCutout,
+                onAvoidCutout = { vm.prefs.setAvoidCutout(it) },
                 autoTurn = autoTurn,
                 autoTurnSeconds = autoTurnSeconds,
                 onAutoTurn = {
@@ -1413,6 +1416,8 @@ private fun ReaderSettings(
     onTextBackground: (TextBackground) -> Unit,
     onLetterSpacing: (Float) -> Unit,
     onLineSpacing: (Float) -> Unit,
+    avoidCutout: Boolean,
+    onAvoidCutout: (Boolean) -> Unit,
     autoTurn: Boolean,
     autoTurnSeconds: Float,
     onAutoTurn: (Boolean) -> Unit,
@@ -1652,6 +1657,19 @@ private fun ReaderSettings(
                             label = { Text(o.label) },
                         )
                     }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("카메라 구멍 피하기", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "구멍만큼 화면을 내리고 그 자리는 검게 둡니다",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = avoidCutout, onCheckedChange = onAvoidCutout)
                 }
 
                 Spacer(Modifier.height(4.dp))

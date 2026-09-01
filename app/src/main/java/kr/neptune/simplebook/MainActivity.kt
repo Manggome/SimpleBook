@@ -1,12 +1,17 @@
 package kr.neptune.simplebook
 
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -40,6 +47,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // 창을 카메라 구멍 아래까지 펼친다. 구멍을 피할지 말지는 앱이 직접 정한다
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
 
         setContent {
             val vm: MainViewModel = viewModel()
@@ -96,12 +111,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    val book = reading
-                    when {
-                        settingsOpen -> SettingsScreen(vm) { settingsOpen = false }
-                        book != null -> ReaderScreen(vm, book) { vm.closeBook() }
-                        else -> ShelfScreen(vm) { settingsOpen = true }
+                // 카메라 구멍을 피할 때는 그 자리를 검게 두고 앱을 그만큼 내린다
+                val avoidCutout by vm.prefs.avoidCutout.collectAsStateWithLifecycle()
+
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            if (avoidCutout) Color.Black else MaterialTheme.colorScheme.background
+                        )
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.background,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (avoidCutout) Modifier.displayCutoutPadding() else Modifier),
+                    ) {
+                        val book = reading
+                        when {
+                            settingsOpen -> SettingsScreen(vm) { settingsOpen = false }
+                            book != null -> ReaderScreen(vm, book) { vm.closeBook() }
+                            else -> ShelfScreen(vm) { settingsOpen = true }
+                        }
                     }
                 }
 
